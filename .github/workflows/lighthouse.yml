@@ -1,0 +1,44 @@
+name: Lighthouse CI
+
+# Runs against the deployed GitHub Pages URL after the main deploy succeeds.
+# Tracks Performance / A11y / Best Practices / SEO / PWA scores over time so
+# regressions get caught at PR-time once we add per-PR runs.
+
+on:
+  workflow_run:
+    workflows: ['Deploy to GitHub Pages']
+    types: [completed]
+  workflow_dispatch:
+  schedule:
+    # Daily 16:00 UTC = 00:00 Taipei
+    - cron: '0 16 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  lighthouse:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wait for deployment to settle
+        run: sleep 30
+
+      - name: Run Lighthouse
+        uses: treosh/lighthouse-ci-action@v12
+        with:
+          urls: |
+            https://cagoooo.github.io/penguin/
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+          configPath: ./.lighthouserc.json
+
+      - name: Annotate run with scores
+        if: always()
+        run: |
+          echo "## 🚦 Lighthouse Report" >> $GITHUB_STEP_SUMMARY
+          echo "Latest run against https://cagoooo.github.io/penguin/" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Detailed report uploaded as artifact (link above)." >> $GITHUB_STEP_SUMMARY
