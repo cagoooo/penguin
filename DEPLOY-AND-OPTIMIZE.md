@@ -1,7 +1,8 @@
 # 🚀 部署到 GitHub Pages + 後續優化詳細步驟
 
 > 給阿凱老師（`cagoooo`）的完整移植與改良指南。
-> 📅 **最後更新**：2026-04-29 ｜ 🌐 **線上版**：https://cagoooo.github.io/penguin/
+> 📅 **最後更新**：2026-04-29（v3 — 含 Phase 6-1 新障礙物 + 中文 OG 預覽圖）
+> 🌐 **線上版**：https://cagoooo.github.io/penguin/
 
 ---
 
@@ -11,19 +12,24 @@
 |---|---|---|
 | **Phase 1** 上線 | ✅ 100% | GitHub Pages + Actions 自動部署 |
 | **Phase 2** 玩家體驗 | ✅ 90% | 最高分／靜音／暫停／虛擬觸控（剩自適應尺寸） |
-| **Phase 3** 程式碼健康 | ✅ 100% | 模組化／ESLint／TS strict／17 單元測試 |
+| **Phase 3** 程式碼健康 | ✅ 100% | 模組化／ESLint／TS strict／**22** 單元測試 |
 | **Phase 4** 擴充功能 | ✅ 95% | PWA／成就／Firebase 排行榜（剩朋友邀請連結） |
 | **🔒 安全強化** | ✅ 100% | API key 限制 + Secret Scanning 處理 |
-| **Phase 5（部分）** 改良包 | ✅ | 觸覺回饋／截圖分享／動態載入／企鵝皮膚 |
-| **Phase 6（部分）** 遊戲擴充 | ✅ | 北極熊 L9+／冰山 L11+／暴風雪 L13+ |
-| **🎨 品牌素材** | ✅ | 1200×630 OG 圖、512×512 favicon、Apple Touch Icon |
-| **Phase 5+ 6+** 其餘建議 | ⬜ 規劃中 | 詳見 [§六](#六未來改良藍圖phase-512) |
+| **Phase 5** 改良包 | ✅ 50% | 觸覺回饋／截圖分享／動態載入／企鵝皮膚（5/9 項完成） |
+| **Phase 6** 遊戲擴充 | ✅ 25% | 北極熊 L9+／冰山 L11+／暴風雪 L13+／皮膚（4/8 項完成） |
+| **🎨 品牌素材** | ✅ 100% | 中文 1200×630 OG 圖、1200×1200 LINE inline、品牌化 favicon |
+| **🤫 秘技保密** | ✅ 100% | God Mode 成就藏起來，UI 顯示 ??? |
+| **Phase 7+ 12+ 14** | ⬜ 規劃中 | 50+ 項建議見 [§六](#六未來改良藍圖phase-512) |
 
 **目前統計**：
-- 📦 Bundle：~227 KB gzip（react+motion+game+firebase 拆成 4 chunks）
-- 🧪 測試：17 個單元測試，全綠
+- 📦 Bundle：首屏 ~145 KB gzip（已拆 react / motion / index / firebase 四 chunks）
+- 🧪 測試：22 個單元測試，全綠（shop / constants / achievements / skins）
 - 🔍 CI：typecheck + lint + test + build 四道關卡
-- 🌐 線上：HTTP 200 OK，Service Worker 啟用，可離線玩
+- 🌐 線上：HTTP 200 OK，PWA 可離線玩
+- 🐧 障礙：8 種（HOLE/SEAL/CRACK/SNOWDRIFT/ICE_PATCH/POLAR_BEAR/ICEBERG + BLIZZARD 環境事件）
+- 🛒 道具：16 種補給站道具
+- 🏆 成就：10 個（含 1 個秘密成就）
+- 🎨 皮膚：5 款（含 1 款全成就解鎖款）
 
 ---
 
@@ -38,6 +44,7 @@
 - [四、CI/CD 與部署自動化](#四-cicd-與部署自動化)
 - [五、優化進度檢核清單](#五-優化進度檢核清單)
 - [**六、未來改良藍圖（Phase 5–12）**](#六未來改良藍圖phase-512) ← Phase 5+ 50+ 項詳細建議
+- [**七、第二輪實作後新發現的進階改良**](#七第二輪實作後新發現的進階改良) ← **最即時 CP 值參考** 🆕
 
 ---
 
@@ -706,14 +713,41 @@ test('遊戲可以開始', async ({ page }) => {
 - [x] 🛡️ GitHub Secret Scanning Alert dismiss as false_positive
 - [ ] 排行榜的好友邀請連結（分享 URL 帶分數，如 `?challenge=12345`）
 
-### ⬜ Phase 5：v2.0（半年內）
-- [ ] Three.js 真 3D 重製（見下方詳細評估）
-- [ ] i18n 多語系（中／英／日）
-- [ ] Replay 錄影分享（MediaRecorder API）
+### ✅ Phase 5：改良包（部分完成）
+- [x] **5-1** 動態載入 Firebase（主 chunk gzip 從 129 → 89 KB，**省 32%**）
+- [x] **5-4** Vibration API 觸覺回饋（5 種震動模式，跟靜音連動）
+- [ ] 5-2 Canvas 自適應尺寸
+- [ ] 5-3 prefers-reduced-motion 支援
+- [ ] 5-5 React 19 Concurrent (useTransition)
+- [ ] 5-6 Bundle Size Monitoring (size-limit)
+- [ ] 5-7 Lighthouse CI
+- [ ] 5-8 圖片資產優化
+- [ ] 5-9 Press Start 2P 8-bit 字型
+
+### ✅ Phase 6：遊戲設計擴充（部分完成）
+- [x] **6-1** 新障礙物 — 北極熊 L9+ / 冰山 L11+ / 暴風雪 L13+
+- [x] **6-7** 企鵝皮膚（5 款，3 個成就解鎖 + 全成就解鎖黃金款）
+- [ ] 6-2 新道具（傳送門 / 時光倒流 / 雙人企鵝）
+- [ ] 6-3 每日挑戰（種子化關卡 + 日榜）
+- [ ] 6-4 時間競速模式
+- [ ] 6-5 Boss 戰（企鵝王 L20）
+- [ ] 6-6 季節限定活動（聖誕／農曆新年）
+- [ ] 6-8 自製關卡編輯器（教師專用）
+
+### ✅ Phase 7：多人/社群（1 項完成）
+- [x] **7-3** 截圖分享（1200×630 PNG + Web Share API + 下載 fallback）
+- [ ] 7-1 即時雙人對戰
+- [ ] 7-2 朋友邀請賽（分享挑戰連結）
+- [ ] 7-4 Replay 錄影分享（MediaRecorder）
+- [ ] 7-5 班級私人排行榜
+
+### ⬜ Phase 8–13：尚未開始
+詳見下方 [§六、未來改良藍圖](#六未來改良藍圖phase-512)
 
 ---
 
-> 📦 **下方「六、未來改良藍圖」**整理了 Phase 5+ 之後的 50+ 項建議，依「立即就能做」→「需要外部協助」分類，可挑著做。
+> 📦 **下方「六、未來改良藍圖」**整理了 50+ 項建議。
+> 「**§七、第二輪實作後新發現的進階改良**」是這次做完才看出來的新點子（最即時的 CP 值參考）。
 
 ---
 
@@ -1132,8 +1166,215 @@ npm i -D rollup-plugin-visualizer
 
 ## 🎯 一句話總結
 
-> Phase 1–4 全數完成，遊戲已在 https://cagoooo.github.io/penguin/ 線上運行，含 PWA、成就、Firebase 排行榜、單元測試、嚴格 CI。
-> 接下來請依「[§六、未來改良藍圖](#六未來改良藍圖phase-512)」依興趣與時間選擇下一步，不必照順序。
+> Phase 1–4 全完成，Phase 5/6/7 部分完成，遊戲已在 https://cagoooo.github.io/penguin/ 線上運行。
+> 接下來請依「[§七、第二輪實作後新發現的進階改良](#七第二輪實作後新發現的進階改良)」挑著做。
+
+---
+
+## 七、第二輪實作後新發現的進階改良
+
+> 這一節是做完 Phase 4-7 部分內容後才看出來的「真實痛點」與「下一個有感的擴充」。
+> 每項都標註 **🟢/🟡/🔴 信心度**（我有多確定值得做）。
+
+### 🔴 高信心度（強烈建議做）
+
+#### 14-1. 拆分 App.tsx 第二階段 ⭐⭐⭐
+**現況**：App.tsx 經過 Phase 3 拆分後仍有 ~3000 行。Canvas 繪製（企鵝、障礙物、極光、山脈、UI）、輸入處理、game loop、所有 modal JSX 都還在裡面。
+
+**痛點**：
+- 加新障礙物時需要碰 4 個地方（type union / spawn / update / draw / collision）
+- 兩個障礙物的 draw code 同一個 if/else 鏈（line 1685-1850 整段約 200 行）
+- 改一個地方很容易誤動到別的
+
+**建議拆法**：
+```
+src/render/
+├── drawPenguin.ts        ← 含 stumble / skateboard / propeller 變體
+├── drawObstacles.ts      ← 8 種障礙物 + onFire 共用邏輯
+├── drawEnvironment.ts    ← 山脈 / 海洋 / 極光 / 雲
+├── drawHUD.ts            ← 改用 React 渲染（已是這樣）
+└── drawProject.ts        ← 偽 3D 投影函式（純函式，可單元測試）
+```
+另把整個 `useEffect(() => { ... game loop ... }, [gameState])` 抽成 `useGameLoop()` hook。
+
+**價值**：每加一個新障礙物從 4 處改成 1 處（在 obstacles.ts 加一個 `case`）。
+
+#### 14-2. 滑動手勢操控 ⭐⭐⭐
+**現況**：手機目前是「長按左右切道、輕點跳躍」+ 虛擬按鈕。  
+**痛點**：手指要伸到畫面下緣按按鈕，遊玩流暢度被打斷。
+
+**建議**：在整個 Canvas 上加偵測：
+- **左滑** → 左切車道
+- **右滑** → 右切車道
+- **上滑** 或 **單點** → 跳躍
+- **下滑** → 減速
+
+```ts
+// 用 Pointer events 算 dx, dy，閾值 50px 觸發
+const dx = e.clientX - downX, dy = e.clientY - downY;
+if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) {
+  if (dx < 0) goLeft(); else goRight();
+}
+```
+
+**價值**：手機操控感大躍進，跟 Subway Surfers 同樣的玩法。
+
+#### 14-3. 多層 Lazy Loading（shareImage / 皮膚資產）⭐⭐
+**現況**：5-1 已把 Firebase lazy 化，但還有：
+- `shareImage.ts` (大量 Canvas drawing 函式) **每次首次載入都執行**
+- 5 款皮膚的繪製函式 `drawSkinAccessories` 全部都載入
+
+**建議**：
+```ts
+const ShareButton = lazy(() => import('./components/ShareButton')); // 含 shareImage
+```
+皮膚因為 game loop 每幀呼叫 `drawSkinAccessories(skinRef.current, ...)`，**不適合 lazy**，但可以拆檔分清楚。
+
+**價值**：再省 ~10 KB gzip。
+
+#### 14-4. 連擊系統（Combo）⭐⭐⭐
+**現況**：收魚就 +分，沒有獎勵連續操作。
+
+**建議**：
+- 連續收 5 條魚不撞到 → ×2 分數加成
+- 連續 10 條 → ×3
+- 連續 20 條 → ×5 + 螢幕震動 + 火焰特效
+- 撞到任何障礙 → combo 歸 0
+
+實作：`gameRef.current` 加 `comboCount: number` 與 `lastFishTime: number`，在收魚邏輯里更新，HUD 顯示「Combo ×N」。
+
+**價值**：玩家會主動避開冰縫去收魚，玩法深度大幅提升。
+
+---
+
+### 🟡 中信心度（值得做但不急）
+
+#### 14-5. 環境天氣系統擴充 ⭐⭐⭐
+**已有**：暴風雪 L13+
+**可擴充**：
+- 🌑 **黑夜模式 L17+**：整個 Canvas 變暗，企鵝周圍有圓形視野（headlight 效果）
+- 🌫️ **大霧 L19+**：z 軸距離 fade，遠處障礙看不見
+- 💨 **強風 L15+**：橫向力推玩家，需主動修正
+- 🌋 **熔岩雨 L21+**：天空掉落紅色顆粒，碰到 -3 命
+
+**架構建議**：抽出 `src/game/weather.ts` 統一管理，`gameRef.weatherType: 'CLEAR' | 'BLIZZARD' | 'NIGHT' | 'FOG' | 'WIND' | 'LAVA_RAIN'`，draw 階段對應切換濾鏡。
+
+#### 14-6. 隱藏房間（BLUE_FLAG warp）⭐⭐
+**機制**：
+- 0.1% 機率出現「金色 BLUE_FLAG」
+- 撞到自動傳送到「金幣房」：純跑酷無敵 10 秒，到處都是金魚
+- 結束後傳回原本距離
+
+實作：`gameState` 加 `'BONUS_ROOM'`，獨立關卡資料。
+
+**價值**：給長線玩家驚喜彩蛋。
+
+#### 14-7. PWA 安裝提示 + Background Sync ⭐⭐
+**現況**：PWA 已配置，但沒主動跳「加到主畫面」UI。
+
+**建議**：
+1. 偵測 `beforeinstallprompt` event → 顯示「📱 加到主畫面」按鈕
+2. 用 Background Sync 在使用者離線玩、上傳排行榜失敗時，自動排程下次連網重試
+3. 用 Push API 推送「你的排行被 OOO 超越了！」（需要使用者授權通知）
+
+**價值**：PWA 黏著度提升。
+
+#### 14-8. Firestore Rules 強化 ⭐⭐
+**現況**：rules 檢查欄位 + 範圍，但任何人都可無限上傳。
+
+**建議**：
+1. 加 Firebase Anonymous Auth → 每使用者 uid
+2. Rules 限制：每 uid 同分數只能寫 1 次
+3. Cloud Functions 排程：每天凌晨刪 30 天前的紀錄
+4. 名字防呆：rules 加 regex 排除空白／單字符／髒話清單
+
+需求：Firebase Blaze 方案（按用量計費，免費額度足夠這專案）。
+
+#### 14-9. 教師後台儀表板 ⭐⭐⭐⭐
+**對阿凱老師最有教學價值的功能**：
+- 建一個 `/teacher` 路由
+- 用 Firebase Auth + Google 登入限制只有指定 email（你的）能進
+- 顯示：
+  - 本週遊玩人次（Plausible 串接）
+  - 各班級平均最高分（用 className 欄位）
+  - 學生分數時間軸
+  - 哪一關死最多人（找難度設計問題）
+  - 最常購買的補給站道具（看商店平衡）
+
+實作：把 Firestore `leaderboard` 加 `className` 欄位，前端可選班級加入時填，後台聚合。
+
+#### 14-10. 程式碼導讀模式（教學用）⭐⭐⭐⭐
+**用途**：把遊戲變成「會跑的教科書」。
+
+**功能**：
+- 在 START 畫面加 「📖 程式碼導讀」按鈕
+- 點開後是一個分章節的 modal：
+  - 第 1 章：偽 3D 投影如何運作（含互動 demo）
+  - 第 2 章：碰撞偵測（顯示 hitbox）
+  - 第 3 章：Konami Code 是什麼
+  - 第 4 章：Firebase 是什麼
+- 每章末尾有「在 GitHub 看程式」連結直接跳對應 file/line
+
+**為什麼適合**：你是資訊老師，這就是你最好的教材！
+
+---
+
+### 🟢 低信心度（看興趣決定）
+
+#### 14-11. Tilt Steering（陀螺儀控制）⭐⭐
+用 `DeviceOrientationEvent` 偵測手機傾斜方向 → 切換車道。
+有些玩家覺得有趣，有些覺得難用。可加進 settings 當選項。
+
+#### 14-12. 完美過關獎勵 ⭐⭐
+通關時若完全沒撞到任何障礙 → +20000 分 + 「完美企鵝」徽章。
+可單獨成就 `perfectionist`。
+
+#### 14-13. 「一起玩」分享連結 ⭐⭐
+通關後產生 `?challenge=base64({score, level, seed})` 分享連結，朋友打開直接挑戰你的同一張關卡。
+等於 7-2 「朋友邀請賽」的最簡版。
+
+#### 14-14. 自動化視覺迴歸測試 ⭐⭐⭐
+- Playwright 截圖 START / GAME_OVER / SHOP / 商店 modal
+- 上傳到 [Chromatic](https://www.chromatic.com/) 或本地比對
+- PR 改動 CSS 自動發現破壞
+
+#### 14-15. 釋出英文／日文版 ⭐⭐⭐
+搭配 i18n（Phase 8-1）+ OG 圖再產一張英文版 → 投稿到 itch.io 或 Hacker News，潛在大量流量。
+可做為「阿凱老師作品國際化」demo。
+
+---
+
+## 🏆 我推薦的下一波（最高 CP 值）
+
+如果只能挑 3 項，**強烈推薦**這個組合：
+
+### 🥇 組合 A：「玩家立刻有感」（半天）
+1. **14-2 滑動手勢**（30 分鐘）— 手機體驗大躍進
+2. **14-4 連擊系統**（1-2 小時）— 玩法深度
+3. **6-3 每日挑戰**（半天）— 留住回訪玩家
+
+### 🥈 組合 B：「程式碼健康度」（1 天）
+1. **14-1 拆分 App.tsx 第二階段**（半天）— 為了之後加新功能不會痛
+2. **5-2 Canvas 自適應**（30 分鐘）— 桌機 4K 終於不再小小一塊
+3. **5-7 Lighthouse CI**（30 分鐘）— 防止效能退步
+
+### 🥉 組合 C：「教學價值」（1 週）
+1. **14-9 教師後台儀表板**（2 天）— 看學生數據
+2. **14-10 程式碼導讀模式**（2 天）— 變教材
+3. **12-3 課程嵌入式挑戰**（1 天）— 實際進資訊課
+
+### 🚀 組合 D：「擴大觸及」（1-2 週）
+1. **8-1 i18n**（半天）
+2. **14-15 英文版投稿 itch.io**（1 天）
+3. **9-1 Plausible 分析**（1 小時）— 看真實流量
+4. **14-8 反作弊強化**（1 天）— 國際玩家來了會作弊
+
+---
+
+## 🎯 一句話總結
+
+> Phase 1–4 全完成，Phase 5/6/7 各部分已上線。遊戲已在 https://cagoooo.github.io/penguin/ 運行。
+> 下一波最推薦：**14-1 拆分** + **14-2 滑動** + **14-4 連擊**——半天到一天就能讓遊戲體驗再升一級。
 
 ---
 
