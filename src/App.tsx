@@ -256,6 +256,19 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [gameState]);
 
+  // Warn before accidental F5 / close while a game is in progress.
+  // beforeunload only fires the native confirm if returnValue is set; the
+  // string itself is ignored by modern browsers (they show a generic message).
+  useEffect(() => {
+    if (gameState !== 'PLAYING' && gameState !== 'SHOP') return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [gameState]);
+
   const containerRef = useRef<HTMLDivElement>(null);
 
   // God Mode Sequence Observer

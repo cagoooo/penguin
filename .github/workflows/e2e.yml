@@ -1,0 +1,62 @@
+name: E2E Smoke Tests
+
+# Two trigger modes:
+#   1. PR / push to main → run against locally-built `vite preview` (catches regressions BEFORE deploy)
+#   2. After deploy succeeds → run against the deployed URL (catches anything Lighthouse misses)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_run:
+    workflows: ['Deploy to GitHub Pages']
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local:
+    # Skip the local job when this run was triggered by the deploy workflow —
+    # the post-deploy job below handles that scenario instead.
+    if: github.event_name != 'workflow_run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npm run e2e -- --project=chromium
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-local
+          path: playwright-report/
+          retention-days: 14
+
+  post-deploy:
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Wait for GitHub Pages CDN to settle
+        run: sleep 30
+      - run: npm run e2e -- --project=chromium
+        env:
+          E2E_BASE_URL: https://cagoooo.github.io/penguin/
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-prod
+          path: playwright-report/
+          retention-days: 14
