@@ -9,7 +9,11 @@ export default defineConfig({
     react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // prompt: show a UI toast when a new SW is waiting (UpdatePrompt.tsx).
+      // Beats autoUpdate for a game — we don't want to silently reload while
+      // the player is mid-level. NetworkFirst (below) ensures fresh HTML on
+      // the next refresh anyway.
+      registerType: 'prompt',
       includeAssets: ['favicon.svg'],
       manifest: {
         name: '南極大冒險：企鵝跑酷',
@@ -38,7 +42,8 @@ export default defineConfig({
         // https://web.dev/articles/offline-cookbook#network_falling_back_to_cache
         navigateFallback: 'index.html',
         navigateFallbackDenylist: [/^\/_/, /\/[^/?]+\.[^/]+$/],
-        skipWaiting: true,
+        // skipWaiting NOT set — we want the user to confirm via the toast.
+        // updateServiceWorker(true) call in UpdatePrompt.tsx handles skipWaiting + reload.
         clientsClaim: true,
         runtimeCaching: [
           {

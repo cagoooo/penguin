@@ -23,6 +23,8 @@ const ScoreSubmitForm = lazy(() => import('./leaderboard/ScoreSubmitForm'));
 // Other modals — loaded on-demand to keep the initial bundle slim.
 const AchievementsModal = lazy(() => import('./achievements/AchievementsModal'));
 const SkinPickerModal = lazy(() => import('./skins/SkinPickerModal'));
+// PWA update prompt — registers the SW + shows a toast when a new build lands.
+const UpdatePrompt = lazy(() => import('./components/UpdatePrompt'));
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -2478,6 +2480,11 @@ export default function App() {
       />
     </Suspense>
   )}
+
+  {/* PWA update prompt — toast when new SW is ready */}
+  <Suspense fallback={null}>
+    <UpdatePrompt />
+  </Suspense>
 
   {/* Author Footer */}
   {!isFullscreen && (
