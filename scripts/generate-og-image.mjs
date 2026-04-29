@@ -12,13 +12,53 @@
 // public/favicon.svg.
 
 import { Canvas, GlobalFonts } from '@napi-rs/canvas';
-import { writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const root = resolve(__dirname, '..');
+
+// ------------------- font registration ------------------------------------
+// @napi-rs/canvas doesn't auto-discover system CJK fonts. We register
+// Microsoft JhengHei (Windows), then PingFang/Heiti (macOS), then Noto Sans CJK
+// (Linux/CI) so the same script works in any dev environment that has them.
+//
+// If none are available, the script falls back to whatever sans-serif Skia
+// ships with, which means CJK glyphs will render as tofu (□□□).
+
+const CJK_CANDIDATES = [
+  // Windows
+  { path: 'C:/Windows/Fonts/msjh.ttc', alias: 'CJK' },
+  { path: 'C:/Windows/Fonts/msjhbd.ttc', alias: 'CJK Bold' },
+  // macOS
+  { path: '/System/Library/Fonts/PingFang.ttc', alias: 'CJK' },
+  { path: '/System/Library/Fonts/STHeiti Medium.ttc', alias: 'CJK' },
+  // Linux / CI
+  { path: '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc', alias: 'CJK' },
+  { path: '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc', alias: 'CJK' },
+];
+
+let cjkRegistered = false;
+for (const { path, alias } of CJK_CANDIDATES) {
+  if (existsSync(path)) {
+    try {
+      GlobalFonts.registerFromPath(path, alias);
+      console.log(`✓ Registered CJK font: ${path} as "${alias}"`);
+      cjkRegistered = true;
+    } catch (err) {
+      console.warn(`! Failed to register ${path}: ${err.message}`);
+    }
+  }
+}
+if (!cjkRegistered) {
+  console.warn('! No CJK fonts found — Chinese characters may render as tofu (□).');
+}
+
+// Use the registered "CJK" family with sans-serif fallback for ASCII
+const FONT_REGULAR = '"CJK", sans-serif';
+const FONT_BOLD = '"CJK Bold", "CJK", sans-serif';
 
 // ------------------- shared drawing primitives -----------------------------
 
@@ -158,18 +198,19 @@ function buildOgCard() {
   drawStars(ctx);
   drawPenguin(ctx, 230, 360, 1);
 
-  // Title
+  // Title — main 繁體中文 + 副標 English to keep brand recognition
   ctx.fillStyle = '#fff';
-  ctx.font = 'bold 88px sans-serif';
+  ctx.font = `bold 110px ${FONT_BOLD}`;
   ctx.textAlign = 'left';
-  ctx.fillText('Penguin', 480, 140);
-  ctx.fillStyle = '#67e8f9';
-  ctx.font = 'bold 56px sans-serif';
-  ctx.fillText('Antarctic Adventure', 480, 210);
+  ctx.fillText('南極大冒險', 480, 145);
 
-  ctx.fillStyle = 'rgba(180, 220, 255, 0.7)';
-  ctx.font = '24px sans-serif';
-  ctx.fillText('A Konami 1983 Tribute · 阿凱老師 × antarctic', 480, 250);
+  ctx.fillStyle = '#67e8f9';
+  ctx.font = `bold 38px ${FONT_BOLD}`;
+  ctx.fillText('企鵝跑酷經典重製', 480, 200);
+
+  ctx.fillStyle = 'rgba(180, 220, 255, 0.75)';
+  ctx.font = `22px ${FONT_REGULAR}`;
+  ctx.fillText('Konami 1983 致敬作 · 阿凱老師 × antarctic', 480, 240);
 
   // Stat box
   const boxX = 480, boxY = 310, boxW = 660, boxH = 200;
@@ -180,29 +221,37 @@ function buildOgCard() {
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // 3 hero stats
+  // 3 hero stats with Chinese labels
   const stats = [
-    { label: 'OBSTACLES', value: '7+' },
-    { label: 'POWERUPS', value: '16' },
-    { label: 'ACHIEVEMENTS', value: '10' },
+    { label: '障礙', value: '7+' },
+    { label: '道具', value: '16' },
+    { label: '成就', value: '10' },
   ];
   stats.forEach((s, i) => {
     const x = boxX + 30 + i * 220;
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-    ctx.font = '20px sans-serif';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+    ctx.font = `22px ${FONT_REGULAR}`;
     ctx.fillText(s.label, x, boxY + 50);
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 72px sans-serif';
+    ctx.font = `bold 78px ${FONT_BOLD}`;
     ctx.fillText(s.value, x, boxY + 130);
   });
 
   // CTA / footer
+  // CTA — draw a small triangle "play" icon manually so we don't depend on
+  // an emoji font (msjh.ttc has no emoji glyphs and would render tofu).
   ctx.fillStyle = '#fde047';
-  ctx.font = 'bold 28px sans-serif';
-  ctx.fillText('Play Free in Browser', 480, 555);
+  ctx.beginPath();
+  ctx.moveTo(480, 535);
+  ctx.lineTo(480, 565);
+  ctx.lineTo(508, 550);
+  ctx.closePath();
+  ctx.fill();
+  ctx.font = `bold 28px ${FONT_BOLD}`;
+  ctx.fillText('立即免費遊玩', 525, 560);
 
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
-  ctx.font = '20px sans-serif';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+  ctx.font = `20px ${FONT_REGULAR}`;
   ctx.fillText('cagoooo.github.io/penguin', 480, 590);
 
   return canvas.toBuffer('image/png');
@@ -220,14 +269,14 @@ function buildSquareCard() {
   drawPenguin(ctx, W / 2, H / 2 - 80, 1.4);
 
   ctx.fillStyle = '#fff';
-  ctx.font = 'bold 110px sans-serif';
+  ctx.font = `bold 150px ${FONT_BOLD}`;
   ctx.textAlign = 'center';
-  ctx.fillText('PENGUIN', W / 2, H - 200);
+  ctx.fillText('南極大冒險', W / 2, H - 200);
   ctx.fillStyle = '#67e8f9';
-  ctx.font = 'bold 64px sans-serif';
-  ctx.fillText('ANTARCTIC ADVENTURE', W / 2, H - 120);
+  ctx.font = `bold 60px ${FONT_BOLD}`;
+  ctx.fillText('企鵝跑酷經典重製', W / 2, H - 120);
   ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-  ctx.font = '32px sans-serif';
+  ctx.font = `32px ${FONT_REGULAR}`;
   ctx.fillText('cagoooo.github.io/penguin', W / 2, H - 60);
 
   return canvas.toBuffer('image/png');
