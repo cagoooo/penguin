@@ -17,6 +17,9 @@ export interface AchievementDef {
   title: string;
   description: string;
   icon: string;
+  /** Hidden from the list until unlocked. Players see only "???" so the easter egg
+   *  retains its surprise. Description here will only render once unlocked. */
+  secret?: boolean;
 }
 
 export const ACHIEVEMENTS: readonly AchievementDef[] = [
@@ -25,7 +28,7 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'level-10', title: '極地勇者', description: '通過第 10 關', icon: '🏆' },
   { id: 'score-100k', title: '十萬富翁', description: '單局得分超過 100,000', icon: '💎' },
   { id: 'score-1m', title: '百萬大亨', description: '單局得分超過 1,000,000', icon: '👑' },
-  { id: 'god-mode', title: '上古祕技', description: '啟動 God Mode (↑↑↓↓←←→→AB)', icon: '🌟' },
+  { id: 'god-mode', title: '上古祕技', description: '探索古老的傳說...', icon: '🌟', secret: true },
   { id: 'shop-spree', title: '購物狂', description: '單場購買 5 件以上補給', icon: '🛒' },
   { id: 'fish-feast', title: '魚之饗宴', description: '單局收集 50 條魚', icon: '🐟' },
   { id: 'survivor', title: '南極之心', description: '在第 7 關後仍存活', icon: '❄️' },

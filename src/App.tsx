@@ -2807,6 +2807,7 @@ export default function App() {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {allAchievements.map(a => {
               const isUnlocked = achievementsUnlocked.has(a.id);
+              const hideContent = !!a.secret && !isUnlocked;
               return (
                 <div
                   key={a.id}
@@ -2816,9 +2817,11 @@ export default function App() {
                       : 'border-white/10 bg-white/5 opacity-50'
                   }`}
                 >
-                  <div className={`text-3xl mb-1 ${isUnlocked ? '' : 'grayscale'}`}>{a.icon}</div>
-                  <p className="font-bold text-sm">{a.title}</p>
-                  <p className="text-xs opacity-70">{a.description}</p>
+                  <div className={`text-3xl mb-1 ${isUnlocked ? '' : 'grayscale'}`}>
+                    {hideContent ? '❓' : a.icon}
+                  </div>
+                  <p className="font-bold text-sm">{hideContent ? '???' : a.title}</p>
+                  <p className="text-xs opacity-70">{hideContent ? '???' : a.description}</p>
                   {!isUnlocked && <p className="text-[10px] mt-1 opacity-50">🔒 未解鎖</p>}
                 </div>
               );
@@ -2878,12 +2881,11 @@ export default function App() {
                   <p className="font-bold text-sm">{skin.name}</p>
                   <p className="text-xs opacity-70 mt-0.5">{skin.description}</p>
                   {!unlocked && (
-                    <p className="text-[10px] mt-2 opacity-60">🔒 解開{
-                      skin.id === 'golden' ? '所有成就' :
-                      skin.unlockAchievement === 'level-5' ? '冰原行者' :
-                      skin.unlockAchievement === 'level-10' ? '極地勇者' :
-                      skin.unlockAchievement === 'god-mode' ? '上古祕技' :
-                      '神秘條件'
+                    <p className="text-[10px] mt-2 opacity-60">🔒 {
+                      skin.id === 'golden' ? '解開所有成就' :
+                      skin.unlockAchievement === 'level-5' ? '解開冰原行者' :
+                      skin.unlockAchievement === 'level-10' ? '解開極地勇者' :
+                      '神秘解鎖條件'
                     }</p>
                   )}
                   {selected && (
