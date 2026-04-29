@@ -1,10 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trophy, Timer, MapPin, Play, RotateCcw, ChevronRight, ChevronLeft, ArrowUp, ArrowDown, Maximize, Minimize, ShoppingCart, Heart, Zap, Clock, Smartphone, Shield, Search, Wind, Compass, Rocket, Fish } from 'lucide-react';
+import { Trophy, Timer, MapPin, Play, RotateCcw, ChevronRight, ChevronLeft, ArrowUp, ArrowDown, Maximize, Minimize, ShoppingCart, Heart, Zap, Clock, Smartphone, Shield, Search, Wind, Compass, Rocket, Fish, Volume2, VolumeX, Pause } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
 // --- Sound Effects ---
 let audioCtx: AudioContext | null = null;
+
+// Module-level mutable flags so refs survive re-renders and the audio module sees them
+const mutedRef = { current: false };
+const pausedRef = { current: false };
 
 const initAudio = () => {
   if (!audioCtx) {
@@ -16,7 +20,7 @@ const initAudio = () => {
 };
 
 const playTone = (freq: number, type: OscillatorType, duration: number, volume: number = 0.1) => {
-  if (!audioCtx) return;
+  if (!audioCtx || mutedRef.current) return;
   const osc = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
   osc.type = type;
@@ -260,7 +264,57 @@ export default function App() {
   const [mobileOpt, setMobileOpt] = useState(false);
   const [showScroll, setShowScroll] = useState(false);
   const idleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  
+
+  // Phase 2: best score, mute, pause
+  const [bestScore, setBestScore] = useState<number>(() => {
+    try { return parseInt(localStorage.getItem('penguin_best') || '0') || 0; } catch { return 0; }
+  });
+  const [isNewRecord, setIsNewRecord] = useState(false);
+  const [muted, setMuted] = useState<boolean>(() => {
+    try { return localStorage.getItem('penguin_muted') === '1'; } catch { return false; }
+  });
+  mutedRef.current = muted;
+  const [paused, setPaused] = useState(false);
+  pausedRef.current = paused;
+
+  // Best score persistence on GAME_OVER
+  useEffect(() => {
+    if (gameState !== 'GAME_OVER') {
+      setIsNewRecord(false);
+      return;
+    }
+    if (score > bestScore) {
+      setBestScore(score);
+      setIsNewRecord(true);
+      try { localStorage.setItem('penguin_best', String(score)); } catch {}
+      if (!muted) {
+        confetti({ particleCount: 200, spread: 100, origin: { y: 0.6 } });
+        const notes = [523.25, 659.25, 783.99, 1046.50, 1318.51];
+        notes.forEach((n, i) => setTimeout(() => playTone(n, 'square', 0.2, 0.08), i * 100));
+      }
+    }
+  }, [gameState, score, bestScore, muted]);
+
+  // Mute toggle: persist + stop BGM if muted mid-game
+  useEffect(() => {
+    try { localStorage.setItem('penguin_muted', muted ? '1' : '0'); } catch {}
+    if (muted) stopBGM();
+    else if (gameState === 'PLAYING') startBGM();
+  }, [muted, gameState]);
+
+  // Pause toggle via 'P' or 'Escape' (only when PLAYING)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (gameState !== 'PLAYING') return;
+      if (e.code === 'KeyP' || e.code === 'Escape') {
+        e.preventDefault();
+        setPaused(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [gameState]);
+
   const containerRef = useRef<HTMLDivElement>(null);
 
   // God Mode Sequence Observer
@@ -614,7 +668,7 @@ export default function App() {
 
   useEffect(() => {
     let timer: any;
-    if (gameState === 'PLAYING') {
+    if (gameState === 'PLAYING' && !paused && !muted) {
       // Delay BGM slightly to let start fanfare play
       timer = setTimeout(() => {
         startBGM();
@@ -626,7 +680,7 @@ export default function App() {
       stopBGM();
       if (timer) clearTimeout(timer);
     };
-  }, [gameState]);
+  }, [gameState, paused, muted]);
 
   // --- Gamepad Handling ---
   useEffect(() => {
@@ -762,6 +816,13 @@ export default function App() {
     const update = () => {
       const g = gameRef.current;
       const p = playerRef.current;
+
+      // Pause: skip simulation but keep redrawing the last frame
+      if (pausedRef.current) {
+        draw();
+        frameId.current = requestAnimationFrame(update);
+        return;
+      }
 
       // 1. Update Speed
       const baseMaxSpeed = g.hasSkateboard ? MAX_SPEED * 2 : MAX_SPEED;
@@ -2033,14 +2094,35 @@ export default function App() {
 
           {/* Game Canvas Container */}
           <div className={`relative flex-1 rounded-none sm:rounded-2xl overflow-hidden shadow-2xl border-x-0 sm:border-4 border-white/10 bg-black ${!isFullscreen ? 'mb-0' : ''}`}>
-            {/* Fullscreen Toggle */}
-            <button 
-              onClick={toggleFullscreen}
-              className="absolute top-4 right-4 z-50 p-2 bg-black/40 backdrop-blur-md rounded-full border border-white/20 hover:bg-white/20 transition-all active:scale-90"
-              title={isFullscreen ? "退出全螢幕" : "進入全螢幕"}
-            >
-              {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
-            </button>
+            {/* Top-right control cluster */}
+            <div className="absolute top-4 right-4 z-50 flex gap-2">
+              {gameState === 'PLAYING' && (
+                <button
+                  onClick={() => setPaused(p => !p)}
+                  className="p-2 bg-black/40 backdrop-blur-md rounded-full border border-white/20 hover:bg-white/20 transition-all active:scale-90"
+                  title={paused ? '繼續 (P)' : '暫停 (P)'}
+                  aria-label={paused ? '繼續' : '暫停'}
+                >
+                  {paused ? <Play size={20} /> : <Pause size={20} />}
+                </button>
+              )}
+              <button
+                onClick={() => setMuted(m => !m)}
+                className="p-2 bg-black/40 backdrop-blur-md rounded-full border border-white/20 hover:bg-white/20 transition-all active:scale-90"
+                title={muted ? '取消靜音' : '靜音'}
+                aria-label={muted ? '取消靜音' : '靜音'}
+              >
+                {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+              </button>
+              <button
+                onClick={toggleFullscreen}
+                className="p-2 bg-black/40 backdrop-blur-md rounded-full border border-white/20 hover:bg-white/20 transition-all active:scale-90"
+                title={isFullscreen ? '退出全螢幕' : '進入全螢幕'}
+                aria-label={isFullscreen ? '退出全螢幕' : '進入全螢幕'}
+              >
+                {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+              </button>
+            </div>
 
             <canvas
               ref={canvasRef}
@@ -2390,7 +2472,14 @@ export default function App() {
                 <h1 className="text-4xl sm:text-6xl font-black mb-2 tracking-tighter italic text-white shadow-sm">
                   南極大冒險
                 </h1>
-                <p className="text-blue-300 font-medium mb-4 sm:mb-8 uppercase tracking-[0.3em] text-[10px] sm:text-sm px-2">企鵝跑酷經典重製</p>
+                <p className="text-blue-300 font-medium mb-2 uppercase tracking-[0.3em] text-[10px] sm:text-sm px-2">企鵝跑酷經典重製</p>
+                {bestScore > 0 && (
+                  <p className="mb-4 sm:mb-6 text-yellow-300/80 text-xs sm:text-sm flex items-center justify-center gap-2">
+                    <Trophy size={14} className="text-yellow-400" />
+                    <span className="opacity-70">歷史最高分</span>
+                    <span className="font-mono font-bold tracking-wider">{bestScore.toLocaleString()}</span>
+                  </p>
+                )}
                 
                 <div className={`relative mb-8 sm:mb-12 h-[200px] sm:h-[300px] overflow-hidden ${isPortrait && !isFullscreen ? 'px-4' : ''}`}>
                   <AnimatePresence mode="wait">
@@ -2548,23 +2637,62 @@ export default function App() {
           )}
 
           {gameState === 'GAME_OVER' && (
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="absolute inset-0 bg-red-900/80 backdrop-blur-md flex flex-col items-center justify-center text-center"
+              className="absolute inset-0 bg-red-900/80 backdrop-blur-md flex flex-col items-center justify-center text-center p-4"
             >
-              <h2 className="text-7xl font-black mb-4 tracking-tighter">時間到！</h2>
-              <p className="text-2xl mb-8 opacity-80">企鵝凍僵了...</p>
-              <div className="bg-black/20 p-6 rounded-2xl mb-8">
-                <p className="text-sm uppercase opacity-60 mb-1">最終得分</p>
-                <p className="text-5xl font-mono font-bold">{score}</p>
+              <h2 className="text-5xl sm:text-7xl font-black mb-4 tracking-tighter">時間到！</h2>
+              <p className="text-xl sm:text-2xl mb-6 opacity-80">企鵝凍僵了...</p>
+              {isNewRecord && (
+                <motion.p
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{ scale: [1, 1.1, 1], opacity: 1 }}
+                  transition={{ duration: 0.6, repeat: Infinity }}
+                  className="text-yellow-300 font-bold text-lg sm:text-2xl mb-4 tracking-widest"
+                >
+                  ✨ 新紀錄！NEW RECORD ✨
+                </motion.p>
+              )}
+              <div className="flex gap-3 sm:gap-4 mb-8">
+                <div className="bg-black/30 px-5 sm:px-6 py-4 rounded-2xl">
+                  <p className="text-[10px] sm:text-sm uppercase opacity-60 mb-1">最終得分</p>
+                  <p className="text-3xl sm:text-5xl font-mono font-bold">{score}</p>
+                </div>
+                <div className="bg-black/30 px-5 sm:px-6 py-4 rounded-2xl border border-yellow-400/30">
+                  <p className="text-[10px] sm:text-sm uppercase opacity-60 mb-1 flex items-center gap-1 justify-center">
+                    <Trophy size={12} className="text-yellow-400" /> 最高分
+                  </p>
+                  <p className="text-3xl sm:text-5xl font-mono font-bold text-yellow-300">{bestScore}</p>
+                </div>
               </div>
               <button
                 onClick={() => initGame(false)}
-                className="px-10 py-4 bg-white text-red-900 rounded-full font-bold text-xl hover:bg-red-50 transition-all flex items-center gap-3"
+                className="px-10 py-4 bg-white text-red-900 rounded-full font-bold text-xl hover:bg-red-50 transition-all flex items-center gap-3 active:scale-95"
               >
                 <RotateCcw />
                 再試一次
+              </button>
+            </motion.div>
+          )}
+
+          {/* Pause Overlay */}
+          {gameState === 'PLAYING' && paused && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/70 backdrop-blur-md flex flex-col items-center justify-center text-center z-[150]"
+            >
+              <Pause size={64} className="mb-4 text-white/80" />
+              <h2 className="text-4xl sm:text-6xl font-black mb-3 tracking-tighter">暫停中</h2>
+              <p className="text-sm sm:text-base opacity-60 mb-6">按 <kbd className="px-2 py-0.5 bg-white/20 rounded text-xs">P</kbd> 或 <kbd className="px-2 py-0.5 bg-white/20 rounded text-xs">Esc</kbd> 繼續</p>
+              <button
+                onClick={() => setPaused(false)}
+                className="px-8 py-3 bg-blue-500 hover:bg-blue-400 rounded-full font-bold text-lg transition-all active:scale-95 flex items-center gap-2"
+              >
+                <Play size={18} fill="currentColor" />
+                繼續遊戲
               </button>
             </motion.div>
           )}
@@ -2597,7 +2725,48 @@ export default function App() {
             </motion.div>
           )}
 
-          {/* Virtual Controls Overlay (Only during PLAYING) */}
+          {/* Virtual Controls Overlay (Only during PLAYING on touch devices) */}
+          {gameState === 'PLAYING' && !paused && (
+            <div className="absolute inset-x-0 bottom-2 sm:bottom-6 z-40 flex items-end justify-between px-3 sm:px-6 pointer-events-none select-none md:hidden">
+              <div className="flex gap-2 pointer-events-auto">
+                <button
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    playerRef.current.targetLane = Math.max(-1, playerRef.current.targetLane - 1);
+                  }}
+                  className="w-12 h-12 sm:w-14 sm:h-14 bg-white/20 backdrop-blur-md rounded-full border border-white/30 active:bg-white/40 flex items-center justify-center touch-none"
+                  aria-label="左切車道"
+                >
+                  <ChevronLeft size={28} />
+                </button>
+                <button
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    playerRef.current.targetLane = Math.min(1, playerRef.current.targetLane + 1);
+                  }}
+                  className="w-12 h-12 sm:w-14 sm:h-14 bg-white/20 backdrop-blur-md rounded-full border border-white/30 active:bg-white/40 flex items-center justify-center touch-none"
+                  aria-label="右切車道"
+                >
+                  <ChevronRight size={28} />
+                </button>
+              </div>
+              <button
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  initAudio();
+                  if (!playerRef.current.isJumping) {
+                    playerRef.current.isJumping = true;
+                    playerRef.current.vy = JUMP_FORCE;
+                    sounds.jump();
+                  }
+                }}
+                className="w-16 h-16 sm:w-20 sm:h-20 bg-blue-500/40 backdrop-blur-md rounded-full border border-blue-300/50 active:bg-blue-500/70 flex items-center justify-center pointer-events-auto touch-none shadow-lg"
+                aria-label="跳躍"
+              >
+                <ArrowUp size={28} />
+              </button>
+            </div>
+          )}
         </AnimatePresence>
       </div>
     </div>
@@ -2605,18 +2774,23 @@ export default function App() {
 
   {/* Author Footer */}
   {!isFullscreen && (
-    <footer className="w-full text-center text-[10px] sm:text-xs text-white/40 py-2 mt-1 select-none">
-      Made with{' '}
-      <span className="text-pink-400/70" aria-label="love">♥</span>
-      {' '}by{' '}
-      <a
-        href="https://www.smes.tyc.edu.tw/"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="underline decoration-dotted underline-offset-2 hover:text-white transition-colors"
-      >
-        阿凱老師
-      </a>
+    <footer className="w-full text-center text-[10px] sm:text-xs text-white/40 py-2 mt-1 select-none space-y-0.5">
+      <div>
+        Made with{' '}
+        <span className="text-pink-400/70" aria-label="love">♥</span>
+        {' '}by{' '}
+        <a
+          href="https://www.smes.tyc.edu.tw/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline decoration-dotted underline-offset-2 hover:text-white transition-colors"
+        >
+          阿凱老師
+        </a>
+      </div>
+      <div className="text-white/30">
+        共同開發者：<span className="text-cyan-300/60 font-mono tracking-wider">antarctic</span>
+      </div>
     </footer>
   )}
 </div>
