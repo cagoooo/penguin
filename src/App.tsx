@@ -63,6 +63,46 @@ import type { Obstacle } from './game/types';
 
 // `project()` lives in src/render/project.ts now.
 
+// Static data shown by the START-screen marquee. Lives at module top so the
+// closure captures it once instead of allocating fresh arrays each render.
+const SCROLL_GROUPS = [
+  { section: '敵人與陷阱', items: [
+    { name: '海豹', desc: '路徑上的伏兵，撞擊會跌倒損失大量時間。' },
+    { name: '冰裂縫', desc: '第二關開始出現。地板上的陷阱，掉入會大幅降低速度。' },
+    { name: '雪堆', desc: '第四關開始出現。厚重的積雪，撞擊會嚴重減速。' },
+    { name: '結冰區域', desc: '第七關開始出現。極其光滑的冰面，轉向能力會下降。' },
+    { name: '北極熊', desc: '第九關開始出現。會追蹤車道，撞到 -2 條命。' },
+    { name: '冰山', desc: '第十一關開始出現。1.5 車道寬，必須跳過。' },
+    { name: '暴風雪 / 強風 / 極夜 / 大霧', desc: 'L13/15/17/19 起的環境事件。' },
+    { name: '隱藏房間', desc: '0.3% 機率出現的彩虹漩渦旗，撞到觸發 8 秒金魚饗宴！' },
+  ]},
+  { section: '補給站商品', items: [
+    { name: '黃金碼表', desc: '下關開始生效：立即增加 10 秒計時。' },
+    { name: '特製螺旋槳', desc: '下關開始生效：讓下一次飛行持續時間翻倍。' },
+    { name: '噴射滑板', desc: '下關開始生效：地面時速翻倍，直到碰撞。' },
+    { name: '企鵝娃娃', desc: '下關開始生效：耗盡時間時獲得額外生命。' },
+    { name: '磁力項圈', desc: '下關開始生效：自動吸引所有魚片，持續 30 秒。' },
+    { name: '冰原護盾', desc: '下關開始生效：抵擋下一次碰撞造成的減速。' },
+    { name: '氮氣噴發', desc: '下關開始生效：啟動 5 秒極速衝刺且無敵。' },
+    { name: '高級偵測器', desc: '下關開始生效：該關卡金魚出現率增加。' },
+    { name: '白金碼表', desc: '下關開始生效：立即增加 30 秒計時。' },
+    { name: '重型雪靴', desc: '下關開始生效：碰撞冰縫不再跌倒，僅輕微減速。' },
+    { name: '流線領巾', desc: '下關開始生效：永久提升 10% 加速度與最速上限。' },
+    { name: '極光羅盤', desc: '下關開始生效：縮短該次任務 1000m。' },
+    { name: '神奇魚餌', desc: '下關開始生效：該關卡剩餘所有魚獲得 3 倍積分。' },
+    { name: '克羅諾斯之戒', desc: '下關開始生效：凍結計時鐘 15 秒。' },
+    { name: '反重力引擎', desc: '下關開始生效：直接獲得 20 秒長效飛行。' },
+    { name: '探險王之冠', desc: '下關開始生效：永久獲得 3 倍的分數與距離加成。' },
+  ]},
+  { section: '遊戲規則', items: [
+    { name: '冒險目標', desc: '在時間結束前抵達各關卡的終點（如石門國小）。' },
+    { name: '點數收集', desc: '收集魚片可獲得點數，用於補給站購買裝備。' },
+    { name: '連擊系統', desc: '連續收魚不撞到障礙 → 分數倍率最高 ×15！' },
+    { name: '每日挑戰', desc: '7 種主題日輪替，啟用後享受獨特修正與獎勵。' },
+    { name: '生存技巧', desc: '儘可能避開障礙物，維持最高時速以刷新紀錄。' },
+  ]},
+];
+
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [gameState, setGameState] = useState<GameState>('START');
@@ -2095,55 +2135,28 @@ export default function App() {
                         </div>
                       </motion.div>
                     ) : (
-                      <motion.div 
+                      <motion.div
                         key="scroll"
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         className="h-full relative overflow-hidden"
                       >
+                        {/*
+                          Marquee: render scrollGroups TWICE so the loop is seamless.
+                          Animating y from 0% → -50% scrolls past exactly one copy;
+                          when it loops back to 0% the second copy is positioned
+                          identically to where the first started — no visual jump.
+                          (Previous version animated 100% → -100% which left ~30 s
+                          of blank screen at the start of every cycle.)
+                        */}
                         <motion.div
-                          animate={{ y: ["100%", "-100%"] }}
-                          transition={{ 
-                            duration: 75, 
-                            ease: "linear", 
-                            repeat: Infinity 
-                          }}
-                          className="space-y-12 py-10"
+                          animate={{ y: ['0%', '-50%'] }}
+                          transition={{ duration: 50, ease: 'linear', repeat: Infinity }}
+                          className="space-y-12 py-2"
                         >
-                          {[
-                            { section: "敵人與陷阱", items: [
-                              { name: "海豹", desc: "路徑上的伏兵，撞擊會跌倒損失大量時間。" },
-                              { name: "冰裂縫", desc: "第二關開始出現。地板上的陷阱，掉入會大幅降低速度。" },
-                              { name: "雪堆", desc: "第四關開始出現。厚重的積雪，撞擊會嚴重減速。" },
-                              { name: "結冰區域", desc: "第七關開始出現。極其光滑的冰面，轉向能力會下降。" },
-                              { name: "旗竿", desc: "沒撞擊到會錯失分數，路徑上的旗幟也能增加挑戰。" }
-                            ]},
-                            { section: "補給站商品", items: [
-                              { name: "黃金碼表", desc: "下關開始生效：立即增加 10 秒計時。" },
-                              { name: "特製螺旋槳", desc: "下關開始生效：讓下一次飛行持續時間翻倍。" },
-                              { name: "噴射滑板", desc: "下關開始生效：地面時速翻倍，直到碰撞。" },
-                              { name: "企鵝娃娃", desc: "下關開始生效：耗盡時間時獲得額外生命。" },
-                              { name: "磁力項圈", desc: "下關開始生效：自動吸引所有魚片，持續 30 秒。" },
-                              { name: "冰原護盾", desc: "下關開始生效：抵擋下一次碰撞造成的減速。" },
-                              { name: "氮氣噴發", desc: "下關開始生效：啟動 5 秒極速衝刺且無敵。" },
-                              { name: "高級偵測器", desc: "下關開始生效：該關卡金魚出現率增加。" },
-                              { name: "白金碼表", desc: "下關開始生效：立即增加 30 秒計時。" },
-                              { name: "重型雪靴", desc: "下關開始生效：碰撞冰縫不再跌倒，僅輕微減速。" },
-                              { name: "流線領巾", desc: "下關開始生效：永久提升 10% 加速度與最速上限。" },
-                              { name: "極光羅盤", desc: "下關開始生效：縮短該次任務 1000m。" },
-                              { name: "神奇魚餌", desc: "下關開始生效：該關卡剩餘所有魚獲得 3 倍積分。" },
-                              { name: "克羅諾斯之戒", desc: "下關開始生效：凍結計時鐘 15 秒。" },
-                              { name: "反重力引擎", desc: "下關開始生效：直接獲得 20 秒長效飛行。" },
-                              { name: "探險王之冠", desc: "下關開始生效：永久獲得 3 倍的分數與距離加成。" }
-                            ]},
-                            { section: "遊戲規則", items: [
-                              { name: "冒險目標", desc: "在時間結束前抵達各關卡的終點（如石門國小）。" },
-                              { name: "點數收集", desc: "收集魚片可獲得點數，用於補給站購買裝備。" },
-                              { name: "生存技巧", desc: "儘可能避開障礙物，維持最高時速以刷新紀錄。" }
-                            ]}
-                          ].map((group, gIdx) => (
-                            <div key={gIdx} className="space-y-6">
+                          {[0, 1].flatMap(copyIdx => SCROLL_GROUPS.map((group, gIdx) => (
+                            <div key={`${copyIdx}-${gIdx}`} className="space-y-6">
                               <h3 className="text-blue-400 font-bold border-b border-blue-400/30 pb-2 text-center uppercase tracking-widest">{group.section}</h3>
                               <div className="space-y-4">
                                 {group.items.map((item, iIdx) => (
@@ -2154,7 +2167,7 @@ export default function App() {
                                 ))}
                               </div>
                             </div>
-                          ))}
+                          )))}
                         </motion.div>
                         {/* Gradient Fades for Scrolling */}
                         <div className="absolute top-0 left-0 w-full h-12 bg-gradient-to-b from-[#000] to-transparent z-10" />
