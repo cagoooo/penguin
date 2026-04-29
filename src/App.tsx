@@ -1,189 +1,40 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trophy, Timer, MapPin, Play, RotateCcw, ChevronRight, ChevronLeft, ArrowUp, ArrowDown, Maximize, Minimize, ShoppingCart, Heart, Zap, Clock, Smartphone, Shield, Search, Wind, Compass, Rocket, Fish, Volume2, VolumeX, Pause } from 'lucide-react';
+import { Trophy, Timer, MapPin, Play, RotateCcw, ChevronRight, ChevronLeft, ArrowUp, Maximize, Minimize, ShoppingCart, Heart, Zap, Clock, Smartphone, Shield, Search, Wind, Compass, Rocket, Fish, Volume2, VolumeX, Pause } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import { ALL_SHOP_ITEMS as SHOP_DATA, getShopItem, type ShopItemMeta } from './shop/items';
+import { initAudio, playTone, sounds, mutedRef, pausedRef } from './audio/sounds';
+import { startBGM, stopBGM } from './audio/bgm';
+import {
+  CANVAS_WIDTH,
+  CANVAS_HEIGHT,
+  HORIZON_Y,
+  MAX_SPEED,
+  ACCELERATION,
+  FRICTION,
+  GRAVITY,
+  JUMP_FORCE,
+} from './game/constants';
 
-// --- Sound Effects ---
-let audioCtx: AudioContext | null = null;
+// Map iconName strings (defined in src/shop/items.ts) to actual lucide-react components.
+const ICON_COMPONENTS = {
+  Clock, Maximize, Zap, Heart, Shield, Search, ChevronRight, Wind, Compass, Fish, Timer, Rocket, Trophy,
+} as const;
 
-// Module-level mutable flags so refs survive re-renders and the audio module sees them
-const mutedRef = { current: false };
-const pausedRef = { current: false };
+function renderShopIcon(meta: ShopItemMeta) {
+  const Icon = ICON_COMPONENTS[meta.iconName];
+  const className = meta.iconExtra ? `${meta.iconClass} ${meta.iconExtra}` : meta.iconClass;
+  return <Icon className={className} />;
+}
 
-const initAudio = () => {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-  }
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume();
-  }
-};
-
-const playTone = (freq: number, type: OscillatorType, duration: number, volume: number = 0.1) => {
-  if (!audioCtx || mutedRef.current) return;
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
-  osc.type = type;
-  osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-  gain.gain.setValueAtTime(volume, audioCtx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
-  osc.connect(gain);
-  gain.connect(audioCtx.destination);
-  osc.start();
-  osc.stop(audioCtx.currentTime + duration);
-};
-
-const sounds = {
-  jump: () => playTone(400, 'square', 0.2),
-  fish: () => {
-    playTone(800, 'sine', 0.1);
-    setTimeout(() => playTone(1200, 'sine', 0.1), 50);
-  },
-  flag: () => {
-    playTone(600, 'square', 0.1);
-    setTimeout(() => playTone(900, 'square', 0.1), 50);
-    setTimeout(() => playTone(1200, 'square', 0.1), 100);
-  },
-  powerup: () => {
-    for(let i=0; i<5; i++) {
-      setTimeout(() => playTone(500 + i*200, 'sawtooth', 0.1, 0.05), i*50);
-    }
-  },
-  hit: () => playTone(100, 'sawtooth', 0.3, 0.2),
-  clear: () => {
-    const notes = [523.25, 659.25, 783.99, 1046.50];
-    notes.forEach((n, i) => setTimeout(() => playTone(n, 'square', 0.3), i * 150));
-  },
-  gameOver: () => {
-    const notes = [440, 349.23, 329.63, 261.63];
-    notes.forEach((n, i) => setTimeout(() => playTone(n, 'sawtooth', 0.5), i * 200));
-  },
-  propeller: () => {
-    // Low frequency "thump" for helicopter effect
-    playTone(60, 'sawtooth', 0.05, 0.15);
-  },
-  start: () => {
-    // NES Intro: C5-E5-G5-C6 (very fast) -> G5 (long)
-    const notes = [523.25, 659.25, 783.99, 1046.50];
-    notes.forEach((n, i) => setTimeout(() => playTone(n, 'square', 0.06, 0.06), i * 50));
-    setTimeout(() => playTone(783.99, 'square', 0.6, 0.06), 200);
-  },
-  warn: () => playTone(880, 'sine', 0.1, 0.05)
-};
-
-// --- BGM: The Skaters' Waltz (NES Antarctic Adventure Version) ---
-// T = 0.12s (Base unit, eighth note in 3/4 time)
-const T = 0.12;
-const SKATERS_WALTZ = [
-  // Main Theme (A)
-  { f: 392.00, d: T }, { f: 440.00, d: T }, { f: 493.88, d: T }, // G4 A4 B4
-  { f: 523.25, d: T * 6 }, // C5 (Dotted Half)
-  { f: 587.33, d: T * 6 }, // D5
-  { f: 493.88, d: T * 2 }, { f: 392.00, d: T * 4 }, // B4 G4
-  { f: 392.00, d: T * 6 }, // G4
-  
-  { f: 349.23, d: T }, { f: 392.00, d: T }, { f: 440.00, d: T }, // F4 G4 A4
-  { f: 493.88, d: T * 6 }, // B4
-  { f: 523.25, d: T * 6 }, // C5
-  { f: 440.00, d: T * 2 }, { f: 349.23, d: T * 4 }, // A4 F4
-  { f: 349.23, d: T * 6 }, // F4
-
-  { f: 329.63, d: T }, { f: 349.23, d: T }, { f: 392.00, d: T }, // E4 F4 G4
-  { f: 440.00, d: T * 6 }, // A4
-  { f: 493.88, d: T * 6 }, // B4
-  { f: 392.00, d: T * 2 }, { f: 329.63, d: T * 4 }, // G4 E4
-  { f: 329.63, d: T * 6 }, // E4
-
-  { f: 293.66, d: T * 2 }, { f: 392.00, d: T * 4 }, // D4 G4
-  { f: 261.63, d: T * 6 }, // C4
-  { f: 261.63, d: T * 6 }, // C4
-
-  // Bridge (B) - Fast Section
-  { f: 392.00, d: T }, { f: 392.00, d: T }, { f: 392.00, d: T }, // G4 G4 G4
-  { f: 392.00, d: T }, { f: 329.63, d: T }, { f: 261.63, d: T }, // G4 E4 C4
-  { f: 392.00, d: T * 6 }, // G4
-  
-  { f: 349.23, d: T }, { f: 349.23, d: T }, { f: 349.23, d: T }, // F4 F4 F4
-  { f: 349.23, d: T }, { f: 293.66, d: T }, { f: 246.94, d: T }, // F4 D4 B3
-  { f: 349.23, d: T * 6 }, // F4
-
-  { f: 329.63, d: T }, { f: 329.63, d: T }, { f: 329.63, d: T }, // E4 E4 E4
-  { f: 329.63, d: T }, { f: 261.63, d: T }, { f: 196.00, d: T }, // E4 C4 G3
-  { f: 329.63, d: T * 6 }, // E4
-
-  { f: 293.66, d: T }, { f: 293.66, d: T }, { f: 293.66, d: T }, // D4 D4 D4
-  { f: 293.66, d: T }, { f: 246.94, d: T }, { f: 196.00, d: T }, // D4 B3 G3
-  { f: 293.66, d: T * 6 }, // D4
-
-  // Descending Theme (C)
-  { f: 523.25, d: T * 6 }, // C5
-  { f: 493.88, d: T * 6 }, // B4
-  { f: 440.00, d: T * 6 }, // A4
-  { f: 392.00, d: T * 6 }, // G4
-  { f: 349.23, d: T * 6 }, // F4
-  { f: 329.63, d: T * 6 }, // E4
-  { f: 293.66, d: T * 6 }, // D4
-  { f: 392.00, d: T * 6 }, // G4
-  { f: 392.00, d: T * 6 }, // G4
-];
-
-let bgmInterval: any = null;
-let bgmIndex = 0;
-
-const startBGM = () => {
-  if (bgmInterval) return;
-  const playNext = () => {
-    const note = SKATERS_WALTZ[bgmIndex];
-    if (note.f > 0) {
-      // Use slightly shorter duration for that 8-bit staccato feel (85% duration)
-      // And a very short volume ramp for the "square wave" characteristic
-      playTone(note.f, 'square', note.d * 0.85, 0.04);
-    }
-    bgmIndex = (bgmIndex + 1) % SKATERS_WALTZ.length;
-    bgmInterval = setTimeout(playNext, note.d * 1000);
-  };
-  playNext();
-};
-
-const stopBGM = () => {
-  if (bgmInterval) {
-    clearTimeout(bgmInterval);
-    bgmInterval = null;
-    bgmIndex = 0;
-  }
-};
-
-// --- Constants ---
-const CANVAS_WIDTH = 800;
-const CANVAS_HEIGHT = 600;
-const HORIZON_Y = 250;
-const ROAD_WIDTH_BOTTOM = 600;
-const ROAD_WIDTH_TOP = 40;
-const PLAYER_Y = 500;
-const MAX_SPEED = 40;
-const ACCELERATION = 0.1;
-const FRICTION = 0.05;
-const GRAVITY = 0.9;
-const JUMP_FORCE = -14;
-
-const ALL_SHOP_ITEMS = [
-  { id: 'timer', name: '黃金碼表', icon: <Clock className="w-10 h-10 text-blue-400" />, desc: '很好。你想買什麼？\n\n效果：【立即生效】增加 10 秒計時。', price: 10000 },
-  { id: 'propeller', name: '特製螺旋槳', icon: <Maximize className="w-10 h-10 text-purple-400" />, desc: '太棒了。這可是好貨。\n\n效果：【下關生效】讓下一次飛行持續時間翻倍。', price: 4000 },
-  { id: 'skateboard', name: '噴射滑板', icon: <Zap className="w-10 h-10 text-green-400" />, desc: '確定要這個？這玩意兒很快。\n\n效果：【下關生效】地面時速翻倍，直到發生碰撞。', price: 8000 },
-  { id: 'life', name: '企鵝娃娃', icon: <Heart className="w-10 h-10 text-red-400" />, desc: '很聰明的選擇。\n\n效果：【立即生效】獲得額外生命。', price: 20000 },
-  { id: 'magnet', name: '磁力項圈', icon: <Zap className="w-10 h-10 text-cyan-300" />, desc: '省力好幫手。\n\n效果：【下關生效】自動吸引所有魚片，持續 30 秒。', price: 12000 },
-  { id: 'shield', name: '冰原護盾', icon: <Shield className="w-10 h-10 text-blue-200" />, desc: '安全至上。\n\n效果：【下關生效】抵擋下一次碰撞造成的減速。', price: 18000 },
-  { id: 'nitro', name: '氮氣噴發', icon: <Zap className="w-10 h-10 text-orange-500" />, desc: '油門踩到底！\n\n效果：【下關生效】啟動 5 秒極速衝刺且無敵狀態。', price: 25000 },
-  { id: 'detector', name: '高級偵測器', icon: <Search className="w-10 h-10 text-yellow-200" />, desc: '尋寶專用。\n\n效果：【下關生效】該關卡路徑中金魚出現率增加。', price: 15000 },
-  { id: 'timer2', name: '白金碼表', icon: <Clock className="w-10 h-10 text-white" />, desc: '時間大師。\n\n效果：【立即生效】增加 30 秒計時。', price: 35000 },
-  { id: 'boots', name: '重型雪靴', icon: <ChevronRight className="w-10 h-10 text-stone-400 -rotate-90" />, desc: '踏破艱險。\n\n效果：【下關生效】碰撞冰縫不再跌倒，僅輕微減速。', price: 45000 },
-  { id: 'scarf', name: '流線領巾', icon: <Wind className="w-10 h-10 text-sky-300" />, desc: '如風一般。\n\n效果：【下關生效】永久提升 10% 加速度與最速上限。', price: 50000 },
-  { id: 'compass', name: '極光羅盤', icon: <Compass className="w-10 h-10 text-indigo-400" />, desc: '空間跳躍。\n\n效果：【立即生效】縮短該次任務 1000m 的距離。', price: 65000 },
-  { id: 'bait', name: '神奇魚餌', icon: <Fish className="w-10 h-10 text-red-300" />, desc: '點石成金。\n\n效果：【下關生效】該關卡剩餘所有魚獲得 3 倍積分。', price: 80000 },
-  { id: 'timering', name: '克羅諾斯之戒', icon: <Timer className="w-10 h-10 text-amber-500" />, desc: '靜止的世界。 \n\n效果：【下關生效】凍結計時鐘 15 秒且維持移動量。', price: 100000 },
-  { id: 'antigravity', name: '反重力引擎', icon: <Rocket className="w-10 h-10 text-rose-500" />, desc: '飛躍南極。\n\n效果：【下關生效】直接獲得 20 秒長效飛行。', price: 150000 },
-  { id: 'crown', name: '探險王之冠', icon: <Trophy className="w-10 h-10 text-yellow-300 shadow-lg" />, desc: '無上榮耀。\n\n效果：【下關生效】永久獲得 3 倍的分數與距離加成。', price: 500000 },
-];
+// Display-ready items (with rendered icon nodes); kept for compatibility with existing JSX.
+const ALL_SHOP_ITEMS = SHOP_DATA.map(meta => ({
+  id: meta.id,
+  name: meta.name,
+  icon: renderShopIcon(meta),
+  desc: meta.desc,
+  price: meta.price,
+}));
 
 // --- Types ---
 type GameState = 'START' | 'PLAYING' | 'LEVEL_CLEAR' | 'GAME_OVER' | 'SHOP';
@@ -511,7 +362,7 @@ export default function App() {
     }))
   ).flat());
 
-  const clouds = useRef(Array.from({ length: 6 }).map((_, i) => ({
+  const clouds = useRef(Array.from({ length: 6 }).map(() => ({
     x: Math.random() * 2000 - 1000,
     y: 20 + Math.random() * 60,
     width: 30 + Math.random() * 30,
@@ -685,8 +536,8 @@ export default function App() {
   // --- Gamepad Handling ---
   useEffect(() => {
     let gamepadRequest: number;
-    let lastButtons = new Set<number>();
-    let lastAxes = { x: 0, y: 0 };
+    const lastButtons = new Set<number>();
+    const lastAxes = { x: 0, y: 0 };
 
     const pollGamepad = () => {
       const gamepads = navigator.getGamepads();
@@ -1095,7 +946,7 @@ export default function App() {
       if (g.lastObstacleZ < 1000) {
         const spawnZ = 2000 + Math.random() * 500;
         const typeRoll = Math.random();
-        let type: Obstacle['type'] = 'HOLE';
+        let type: Obstacle['type'];
         let color: string | undefined;
 
         // Detector increases fish spawn rates
@@ -2169,7 +2020,7 @@ export default function App() {
                 }
                 playerRef.current.targetLane = g.touchLane;
               }}
-              onPointerUp={(e) => {
+              onPointerUp={() => {
                 if (gameState !== 'PLAYING') return;
                 const g = gameRef.current;
                 g.isTouchAccelerating = false;
@@ -2337,25 +2188,7 @@ export default function App() {
                             className="whitespace-pre-line"
                           >
                             {(() => {
-                              const shopItems = [
-                                { id: 'timer', name: '黃金碼表', price: 10000, desc: '很好。你想買什麼？\n\n效果：【立即生效】增加 10 秒計時。' },
-                                { id: 'propeller', name: '特製螺旋槳', price: 4000, desc: '太棒了。這可是好貨。\n\n效果：【下關生效】讓下一次飛行持續時間翻倍。' },
-                                { id: 'skateboard', name: '噴射滑板', price: 8000, desc: '確定要這個？這玩意兒很快。\n\n效果：【下關生效】地面時速翻倍，直到發生碰撞。' },
-                                { id: 'life', name: '企鵝娃娃', price: 20000, desc: '很聰明的選擇。\n\n效果：【立即生效】獲得額外生命。' },
-                                { id: 'magnet', name: '磁力項圈', price: 12000, desc: '省力好幫手。\n\n效果：【下關生效】自動吸引所有魚片，持續 30 秒。' },
-                                { id: 'shield', name: '冰原護盾', price: 18000, desc: '安全至上。\n\n效果：【下關生效】抵擋下一次碰撞造成的減速。' },
-                                { id: 'nitro', name: '氮氣噴發', price: 25000, desc: '油門踩到底！\n\n效果：【下關生效】啟動 5 秒極速衝刺且無敵狀態。' },
-                                { id: 'detector', name: '高級偵測器', price: 15000, desc: '尋寶專用。\n\n效果：【下關生效】該關卡路徑中金魚出現率增加。' },
-                                { id: 'timer2', name: '白金碼表', price: 35000, desc: '時間大師。\n\n效果：【立即生效】增加 30 秒計時。' },
-                                { id: 'boots', name: '重型雪靴', price: 45000, desc: '踏破艱險。\n\n效果：【下關生效】碰撞冰縫不再跌倒，僅輕微減速。' },
-                                { id: 'scarf', name: '流線領巾', price: 50000, desc: '如風一般。\n\n效果：【下關生效】永久提升 10% 加速度與最速上限。' },
-                                { id: 'compass', name: '極光羅盤', price: 65000, desc: '空間跳躍。\n\n效果：【立即生效】縮短該次任務 1000m 的距離。' },
-                                { id: 'bait', name: '神奇魚餌', price: 80000, desc: '點石成金。\n\n效果：【下關生效】該關卡剩餘所有魚獲得 3 倍積分。' },
-                                { id: 'timering', name: '克羅諾斯之戒', price: 100000, desc: '靜止的世界。 \n\n效果：【下關生效】凍結計時鐘 15 秒且維持移動量。' },
-                                { id: 'antigravity', name: '反重力引擎', price: 150000, desc: '飛躍南極。\n\n效果：【下關生效】直接獲得 20 秒長效飛行。' },
-                                { id: 'crown', name: '探險王之冠', price: 500000, desc: '無上榮耀。\n\n效果：【下關生效】永久獲得 3 倍的分數與距離加成。' }
-                              ];
-                              const item = shopItems.find(i => i.id === selectedShopItem);
+                              const item = getShopItem(selectedShopItem);
                               if (item) {
                                 return `${item.name}\n售價：${item.price} 點\n\n${item.desc}`;
                               }
@@ -2383,25 +2216,7 @@ export default function App() {
                         中止 / 離開
                       </button>
                       {(() => {
-                        const allItems = [
-                          { id: 'timer', price: 10000 },
-                          { id: 'propeller', price: 4000 },
-                          { id: 'skateboard', price: 8000 },
-                          { id: 'life', price: 20000 },
-                          { id: 'magnet', price: 12000 },
-                          { id: 'shield', price: 18000 },
-                          { id: 'nitro', price: 25000 },
-                          { id: 'detector', price: 15000 },
-                          { id: 'timer2', price: 35000 },
-                          { id: 'boots', price: 45000 },
-                          { id: 'scarf', price: 50000 },
-                          { id: 'compass', price: 65000 },
-                          { id: 'bait', price: 80000 },
-                          { id: 'timering', price: 100000 },
-                          { id: 'antigravity', price: 150000 },
-                          { id: 'crown', price: 500000 },
-                        ];
-                        const currentItem = allItems.find(i => i.id === selectedShopItem);
+                        const currentItem = getShopItem(selectedShopItem);
                         const canAfford = currentItem && score >= currentItem.price;
                         const isSelectable = selectedShopItem && !selectedShopItem.includes('null');
 
