@@ -30,7 +30,27 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
         cleanupOutdatedCaches: true,
+        // CRITICAL: NetworkFirst for HTML navigations means the browser tries the
+        // network first (with a 3s timeout) before falling back to the precached
+        // copy. Without this, the SW serves the OLD index.html — which references
+        // hashed chunk filenames that no longer exist on the server, producing
+        // 404s on lazy imports (e.g. LeaderboardModal-XXXX.js). See:
+        // https://web.dev/articles/offline-cookbook#network_falling_back_to_cache
         navigateFallback: 'index.html',
+        navigateFallbackDenylist: [/^\/_/, /\/[^/?]+\.[^/]+$/],
+        skipWaiting: true,
+        clientsClaim: true,
+        runtimeCaching: [
+          {
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'penguin-pages',
+              networkTimeoutSeconds: 3,
+              expiration: { maxEntries: 4, maxAgeSeconds: 60 * 60 * 24 },
+            },
+          },
+        ],
       },
       devOptions: {
         enabled: false,
