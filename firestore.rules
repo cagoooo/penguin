@@ -1,0 +1,38 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Public leaderboard for the penguin game.
+    // Anyone can read the top scores; anyone can write a single entry as long as
+    // the data shape passes validation. No authentication required for now —
+    // this is a kids' game and the worst case is occasional spam, which the
+    // sort-by-score query naturally hides.
+    match /leaderboard/{entryId} {
+      allow read: if true;
+
+      allow create: if isValidEntry(request.resource.data);
+
+      // Entries are append-only; no updates or deletes from the client.
+      allow update, delete: if false;
+    }
+
+    // Default deny everything else
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+
+  function isValidEntry(d) {
+    return d.keys().hasOnly(['name', 'score', 'level', 'createdAt'])
+      && d.name is string
+      && d.name.size() >= 1
+      && d.name.size() <= 12
+      && d.score is int
+      && d.score >= 0
+      && d.score <= 100000000
+      && d.level is int
+      && d.level >= 1
+      && d.level <= 999
+      && d.createdAt == request.time;
+  }
+}

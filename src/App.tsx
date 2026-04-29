@@ -5,6 +5,9 @@ import confetti from 'canvas-confetti';
 import { ALL_SHOP_ITEMS as SHOP_DATA, getShopItem, type ShopItemMeta } from './shop/items';
 import { initAudio, playTone, sounds, mutedRef, pausedRef } from './audio/sounds';
 import { startBGM, stopBGM } from './audio/bgm';
+import { useAchievements } from './achievements/useAchievements';
+import { submitScore } from './leaderboard/firebase';
+import { useLeaderboard } from './leaderboard/useLeaderboard';
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -128,10 +131,29 @@ export default function App() {
   const [paused, setPaused] = useState(false);
   pausedRef.current = paused;
 
+  // Phase 4: achievements + per-game stats
+  const { unlocked: achievementsUnlocked, unlock: unlockAchievement, toasts: achievementToasts, all: allAchievements } = useAchievements();
+  const [showAchievements, setShowAchievements] = useState(false);
+  const fishCollectedRef = useRef(0);
+  const shopPurchasesRef = useRef(0);
+
+  // Phase 4: leaderboard
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
+  const [playerName, setPlayerName] = useState<string>(() => {
+    try { return localStorage.getItem('penguin_player_name') || ''; } catch { return ''; }
+  });
+  const [submitState, setSubmitState] = useState<'idle' | 'submitting' | 'submitted' | 'error'>('idle');
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const submittedScoreRef = useRef<number | null>(null);
+  const leaderboard = useLeaderboard(showLeaderboard || gameState === 'GAME_OVER', 10);
+
   // Best score persistence on GAME_OVER
   useEffect(() => {
     if (gameState !== 'GAME_OVER') {
       setIsNewRecord(false);
+      setSubmitState('idle');
+      setSubmitError(null);
+      submittedScoreRef.current = null;
       return;
     }
     if (score > bestScore) {
@@ -144,7 +166,49 @@ export default function App() {
         notes.forEach((n, i) => setTimeout(() => playTone(n, 'square', 0.2, 0.08), i * 100));
       }
     }
-  }, [gameState, score, bestScore, muted]);
+    // Score-based achievements
+    if (score >= 100000) unlockAchievement('score-100k');
+    if (score >= 1000000) unlockAchievement('score-1m');
+    if (fishCollectedRef.current >= 50) unlockAchievement('fish-feast');
+    if (shopPurchasesRef.current >= 5) unlockAchievement('shop-spree');
+  }, [gameState, score, bestScore, muted, unlockAchievement]);
+
+  // Level-based achievements + survival check
+  useEffect(() => {
+    if (gameState === 'LEVEL_CLEAR') {
+      if (level === 1) unlockAchievement('first-clear');
+      if (level >= 5) unlockAchievement('level-5');
+      if (level >= 10) unlockAchievement('level-10');
+      if (level >= 7) unlockAchievement('survivor');
+    }
+  }, [gameState, level, unlockAchievement]);
+
+  // Speed-based achievement (live polling during play)
+  useEffect(() => {
+    if (gameState !== 'PLAYING') return;
+    if (speed >= 80) unlockAchievement('speedster');
+  }, [gameState, speed, unlockAchievement]);
+
+  const handleSubmitScore = async () => {
+    const trimmed = playerName.trim();
+    if (!trimmed) {
+      setSubmitError('請先輸入暱稱');
+      return;
+    }
+    if (submittedScoreRef.current === score) return; // Prevent double-submit
+    setSubmitState('submitting');
+    setSubmitError(null);
+    try {
+      await submitScore(trimmed, score, level);
+      try { localStorage.setItem('penguin_player_name', trimmed); } catch {}
+      submittedScoreRef.current = score;
+      setSubmitState('submitted');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      setSubmitError(msg);
+      setSubmitState('error');
+    }
+  };
 
   // Mute toggle: persist + stop BGM if muted mid-game
   useEffect(() => {
@@ -184,13 +248,14 @@ export default function App() {
         const notes = [523.25, 659.25, 783.99, 1046.50, 1318.51];
         notes.forEach((n, i) => setTimeout(() => playTone(n, 'square', 0.15, 0.1), i * 100));
         confetti({ particleCount: 150, spread: 100, origin: { y: 0.6 } });
+        unlockAchievement('god-mode');
         sequence = [];
       }
     };
     
     window.addEventListener('keydown', handleSeqKeyDown);
     return () => window.removeEventListener('keydown', handleSeqKeyDown);
-  }, [gameState]);
+  }, [gameState, unlockAchievement]);
 
   const toggleFullscreen = () => {
     if (!containerRef.current) return;
@@ -390,9 +455,15 @@ export default function App() {
     initAudio();
     sounds.start();
     const g = gameRef.current;
-    
+
     // Ensure isNextLevel is strictly boolean true, not an event object
     const actualNextLevel = isNextLevel === true;
+
+    // Reset per-game stats on a fresh run (NOT on level transitions)
+    if (!actualNextLevel) {
+      fishCollectedRef.current = 0;
+      shopPurchasesRef.current = 0;
+    }
     
     // Apply pending shop items if it's the next level
     if (actualNextLevel) {
@@ -1053,6 +1124,7 @@ export default function App() {
                       else if (obs.color === '#FFD700') points = 1000;
                       else points = 500;
                       if (g.hasTripleFish) points *= 3;
+                      fishCollectedRef.current += 1;
                       sounds.fish();
                     } else if (obs.type === 'FLAG') {
                       if (obs.color === '#FFA500') {
@@ -2227,6 +2299,7 @@ export default function App() {
                               if (canAfford) {
                                 gameRef.current.score -= currentItem.price;
                                 setScore(gameRef.current.score);
+                                shopPurchasesRef.current += 1;
                                 
                                 // Direct immediate items
                                 if (currentItem.id === 'life') {
@@ -2428,7 +2501,7 @@ export default function App() {
                   </AnimatePresence>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+                <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center items-center flex-wrap">
                   <button
                     onClick={() => initGame(false)}
                     className="group relative px-10 sm:px-12 py-3 sm:py-4 bg-blue-500 hover:bg-blue-400 rounded-full font-bold text-lg sm:text-xl transition-all hover:scale-105 active:scale-95 flex items-center gap-3"
@@ -2436,7 +2509,23 @@ export default function App() {
                     <Play fill="currentColor" size={20} />
                     開始冒險
                   </button>
-                  
+
+                  <button
+                    onClick={() => setShowLeaderboard(true)}
+                    className="px-6 py-2 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 rounded-full font-bold text-sm transition-all flex items-center gap-2"
+                  >
+                    <Trophy size={16} className="text-cyan-300" />
+                    排行榜
+                  </button>
+
+                  <button
+                    onClick={() => setShowAchievements(true)}
+                    className="px-6 py-2 bg-yellow-500/20 hover:bg-yellow-500/30 border border-yellow-400/40 rounded-full font-bold text-sm transition-all flex items-center gap-2"
+                  >
+                    <Trophy size={16} className="text-yellow-300" />
+                    成就 {achievementsUnlocked.size}/{allAchievements.length}
+                  </button>
+
                   {!isFullscreen && isPortrait && (
                     <button
                       onClick={() => { initAudio(); toggleFullscreen(); }}
@@ -2481,13 +2570,53 @@ export default function App() {
                   <p className="text-3xl sm:text-5xl font-mono font-bold text-yellow-300">{bestScore}</p>
                 </div>
               </div>
-              <button
-                onClick={() => initGame(false)}
-                className="px-10 py-4 bg-white text-red-900 rounded-full font-bold text-xl hover:bg-red-50 transition-all flex items-center gap-3 active:scale-95"
-              >
-                <RotateCcw />
-                再試一次
-              </button>
+              {/* Submit to leaderboard */}
+              <div className="bg-black/30 border border-white/20 rounded-2xl p-3 sm:p-4 mb-4 w-full max-w-sm">
+                {submitState === 'submitted' ? (
+                  <p className="text-green-300 text-sm sm:text-base font-bold flex items-center justify-center gap-2">
+                    ✓ 已上傳到排行榜！
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={playerName}
+                        onChange={e => setPlayerName(e.target.value.slice(0, 12))}
+                        placeholder="輸入暱稱（最多 12 字）"
+                        maxLength={12}
+                        className="flex-1 px-3 py-2 bg-white/10 border border-white/30 rounded-lg text-sm placeholder-white/40 focus:outline-none focus:border-white/60"
+                        disabled={submitState === 'submitting'}
+                      />
+                      <button
+                        onClick={handleSubmitScore}
+                        disabled={submitState === 'submitting' || !playerName.trim()}
+                        className="px-4 py-2 bg-blue-500 hover:bg-blue-400 rounded-lg font-bold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                      >
+                        {submitState === 'submitting' ? '上傳中...' : '上傳'}
+                      </button>
+                    </div>
+                    {submitError && <p className="text-red-200 text-xs">{submitError}</p>}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3 flex-wrap justify-center">
+                <button
+                  onClick={() => initGame(false)}
+                  className="px-8 py-3 bg-white text-red-900 rounded-full font-bold text-lg hover:bg-red-50 transition-all flex items-center gap-2 active:scale-95"
+                >
+                  <RotateCcw size={18} />
+                  再試一次
+                </button>
+                <button
+                  onClick={() => setShowLeaderboard(true)}
+                  className="px-6 py-3 bg-yellow-500/20 border border-yellow-300/40 hover:bg-yellow-500/30 text-white rounded-full font-bold text-sm transition-all flex items-center gap-2"
+                >
+                  <Trophy size={16} className="text-yellow-300" />
+                  排行榜
+                </button>
+              </div>
             </motion.div>
           )}
 
@@ -2586,6 +2715,149 @@ export default function App() {
       </div>
     </div>
   </div>
+
+  {/* Achievement Toasts (always on top, never blocks input) */}
+  <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[1000] flex flex-col gap-2 pointer-events-none">
+    <AnimatePresence>
+      {achievementToasts.map(t => (
+        <motion.div
+          key={t.id}
+          initial={{ y: -40, opacity: 0, scale: 0.9 }}
+          animate={{ y: 0, opacity: 1, scale: 1 }}
+          exit={{ y: -20, opacity: 0, scale: 0.95 }}
+          transition={{ duration: 0.3 }}
+          className="bg-gradient-to-r from-yellow-500/90 to-amber-600/90 backdrop-blur-md border-2 border-yellow-300 text-black px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 max-w-sm"
+        >
+          <span className="text-3xl drop-shadow">{t.achievement.icon}</span>
+          <div className="text-left">
+            <p className="text-[10px] uppercase tracking-widest font-bold opacity-70">成就解鎖</p>
+            <p className="font-bold text-sm">{t.achievement.title}</p>
+            <p className="text-xs opacity-80">{t.achievement.description}</p>
+          </div>
+        </motion.div>
+      ))}
+    </AnimatePresence>
+  </div>
+
+  {/* Leaderboard Modal */}
+  <AnimatePresence>
+    {showLeaderboard && (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={() => setShowLeaderboard(false)}
+        className="fixed inset-0 z-[1100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+      >
+        <motion.div
+          initial={{ scale: 0.9, y: 20 }}
+          animate={{ scale: 1, y: 0 }}
+          exit={{ scale: 0.95, y: 10 }}
+          onClick={e => e.stopPropagation()}
+          className="bg-gradient-to-b from-[#1a1a3a] to-[#0a0a1a] border-2 border-cyan-400/40 rounded-2xl max-w-md w-full max-h-[80vh] overflow-y-auto p-6"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-black tracking-tight flex items-center gap-2">
+              <Trophy className="text-cyan-300" /> 全球排行榜
+            </h2>
+            <button
+              onClick={() => setShowLeaderboard(false)}
+              className="px-4 py-1 bg-white/10 hover:bg-white/20 rounded-full text-sm transition-all"
+            >
+              關閉
+            </button>
+          </div>
+          {leaderboard.loading && <p className="text-white/50 text-center py-8">載入中...</p>}
+          {leaderboard.error && (
+            <p className="text-red-300 text-sm py-4">⚠️ 連線失敗：{leaderboard.error.message}</p>
+          )}
+          {!leaderboard.loading && !leaderboard.error && leaderboard.entries.length === 0 && (
+            <p className="text-white/50 text-center py-8">還沒有人上榜，當第一個吧！</p>
+          )}
+          {leaderboard.entries.length > 0 && (
+            <ol className="space-y-1">
+              {leaderboard.entries.map((entry, idx) => (
+                <li
+                  key={entry.id}
+                  className={`flex items-center gap-3 px-3 py-2 rounded-lg ${
+                    idx === 0
+                      ? 'bg-yellow-500/20 border border-yellow-400/40'
+                      : idx === 1
+                      ? 'bg-gray-300/15 border border-gray-300/30'
+                      : idx === 2
+                      ? 'bg-orange-500/15 border border-orange-400/30'
+                      : 'bg-white/5'
+                  }`}
+                >
+                  <span className="font-mono w-7 text-center font-bold opacity-70 text-sm">
+                    {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
+                  </span>
+                  <span className="flex-1 truncate font-medium text-sm">{entry.name}</span>
+                  <span className="text-xs opacity-60">L{entry.level}</span>
+                  <span className="font-mono font-bold text-sm tabular-nums">
+                    {entry.score.toLocaleString()}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </motion.div>
+      </motion.div>
+    )}
+  </AnimatePresence>
+
+  {/* Achievements Modal */}
+  <AnimatePresence>
+    {showAchievements && (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={() => setShowAchievements(false)}
+        className="fixed inset-0 z-[1100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+      >
+        <motion.div
+          initial={{ scale: 0.9, y: 20 }}
+          animate={{ scale: 1, y: 0 }}
+          exit={{ scale: 0.95, y: 10 }}
+          onClick={e => e.stopPropagation()}
+          className="bg-gradient-to-b from-[#1a1a3a] to-[#0a0a1a] border-2 border-blue-500/40 rounded-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-black tracking-tight flex items-center gap-2">
+              <Trophy className="text-yellow-400" /> 成就 ({achievementsUnlocked.size}/{allAchievements.length})
+            </h2>
+            <button
+              onClick={() => setShowAchievements(false)}
+              className="px-4 py-1 bg-white/10 hover:bg-white/20 rounded-full text-sm transition-all"
+            >
+              關閉
+            </button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {allAchievements.map(a => {
+              const isUnlocked = achievementsUnlocked.has(a.id);
+              return (
+                <div
+                  key={a.id}
+                  className={`p-3 rounded-xl border-2 transition-all ${
+                    isUnlocked
+                      ? 'border-yellow-400/50 bg-yellow-500/10'
+                      : 'border-white/10 bg-white/5 opacity-50'
+                  }`}
+                >
+                  <div className={`text-3xl mb-1 ${isUnlocked ? '' : 'grayscale'}`}>{a.icon}</div>
+                  <p className="font-bold text-sm">{a.title}</p>
+                  <p className="text-xs opacity-70">{a.description}</p>
+                  {!isUnlocked && <p className="text-[10px] mt-1 opacity-50">🔒 未解鎖</p>}
+                </div>
+              );
+            })}
+          </div>
+        </motion.div>
+      </motion.div>
+    )}
+  </AnimatePresence>
 
   {/* Author Footer */}
   {!isFullscreen && (
