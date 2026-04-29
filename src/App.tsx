@@ -8,6 +8,8 @@ import { startBGM, stopBGM } from './audio/bgm';
 import { useAchievements } from './achievements/useAchievements';
 import { generateShareImage, shareScore } from './utils/shareImage';
 import { SKINS, drawSkinAccessories, getSkin, isSkinUnlocked, loadSkin, saveSkin, type SkinId } from './skins/skins';
+import { comboMultiplier, getComboTier, justEnteredNewTier, type ComboTier } from './game/combo';
+import { getDailyChallenge, loadDailyRecord, recordDailyAttempt } from './game/dailyChallenge';
 
 // Firebase lives in its own ~85KB gzip chunk; only loaded when the player opens
 // the leaderboard or hits GAME_OVER (where the submit form appears).
@@ -163,11 +165,28 @@ export default function App() {
   const skinRef = useRef<SkinId>(currentSkin);
   useEffect(() => { skinRef.current = currentSkin; saveSkin(currentSkin); }, [currentSkin]);
 
+  // Phase 5+: combo system
+  const [comboCount, setComboCount] = useState(0);
+  const [comboFlash, setComboFlash] = useState<ComboTier | null>(null);
+  const comboCountRef = useRef(0);
+  const maxComboRef = useRef(0);
+
+  // Phase 6: daily challenge
+  const [dailyMode, setDailyMode] = useState(false);
+  const [dailyRecord, setDailyRecord] = useState(() => loadDailyRecord());
+  const dailyConfig = getDailyChallenge();
+  const dailyModeRef = useRef(false);
+  useEffect(() => { dailyModeRef.current = dailyMode; }, [dailyMode]);
+
   // Best score persistence on GAME_OVER
   useEffect(() => {
     if (gameState !== 'GAME_OVER') {
       setIsNewRecord(false);
       return;
+    }
+    // Daily challenge: record attempt + best
+    if (dailyModeRef.current) {
+      setDailyRecord(recordDailyAttempt(score, level));
     }
     if (score > bestScore) {
       setBestScore(score);
@@ -184,7 +203,7 @@ export default function App() {
     if (score >= 1000000) unlockAchievement('score-1m');
     if (fishCollectedRef.current >= 50) unlockAchievement('fish-feast');
     if (shopPurchasesRef.current >= 5) unlockAchievement('shop-spree');
-  }, [gameState, score, bestScore, muted, unlockAchievement]);
+  }, [gameState, score, bestScore, muted, level, unlockAchievement]);
 
   // Level-based achievements + survival check
   useEffect(() => {
@@ -422,6 +441,10 @@ export default function App() {
     lastTapTime: 0,
     touchDownTime: 0,
     touchLane: 0,
+    // Swipe tracking — set on pointerdown, evaluated on pointermove
+    touchStartX: 0,
+    touchStartY: 0,
+    touchSwiped: false, // true if any swipe action has fired this gesture
     traction: 1.0,
     isGamepadAccelerating: false,
     isGodMode: false,
@@ -489,6 +512,10 @@ export default function App() {
     if (!actualNextLevel) {
       fishCollectedRef.current = 0;
       shopPurchasesRef.current = 0;
+      comboCountRef.current = 0;
+      maxComboRef.current = 0;
+      setComboCount(0);
+      setComboFlash(null);
     }
     
     // Apply pending shop items if it's the next level
@@ -545,8 +572,15 @@ export default function App() {
       g.time = baseTime + g.time;
     }
 
+    // Daily challenge modifiers — applied on fresh runs (not next-level)
+    if (!actualNextLevel && dailyModeRef.current) {
+      const cfg = getDailyChallenge();
+      g.time = Math.round(g.time * cfg.timeMultiplier);
+      setTime(g.time);
+    }
+
     g.distance = g.levelDistance;
-    g.speed = 20;
+    g.speed = dailyModeRef.current && !actualNextLevel ? 20 * getDailyChallenge().speedMultiplier : 20;
     g.lastObstacleZ = 0;
     g.propellerTime = 0;
     g.turboTime = 0;
@@ -889,7 +923,9 @@ export default function App() {
 
       // Blizzard event (L13+): randomly triggered storm reducing visibility for ~5 seconds.
       // Strength fades in/out smoothly so the world doesn't snap white.
-      if (g.level >= 13) {
+      // BLIZZARD_FRENZY daily theme drops the level threshold to 1
+      const blizzardThresholdLevel = (dailyModeRef.current && getDailyChallenge().blizzardRate >= 5) ? 1 : 13;
+      if (g.level >= blizzardThresholdLevel) {
         if (g.blizzardActive > 0) {
           g.blizzardActive -= 1 / 60;
           // Ramp strength toward 1 while active, toward 0 once expired
@@ -1108,23 +1144,29 @@ export default function App() {
           type = 'BLUE_FLAG';
         } else if (typeRoll > fishThreshold) {
           type = 'FISH';
-          const fishRoll = Math.random();
-          // Detector makes gold fish more common
-          const goldThreshold = g.hasDetector ? 0.2 : 0.4;
-          const greenThreshold = g.hasDetector ? 0.5 : 0.7;
-
-          if (fishRoll > greenThreshold) color = '#32CD32'; // Green
-          else if (fishRoll > goldThreshold) color = '#FFD700'; // Yellow
-          else color = '#FF6347'; // Red (Default)
+          // GOLDEN_FISH daily theme makes every fish gold
+          if (dailyModeRef.current && getDailyChallenge().goldFishBoost) {
+            color = '#FFD700';
+          } else {
+            const fishRoll = Math.random();
+            const goldThreshold = g.hasDetector ? 0.2 : 0.4;
+            const greenThreshold = g.hasDetector ? 0.5 : 0.7;
+            if (fishRoll > greenThreshold) color = '#32CD32';
+            else if (fishRoll > goldThreshold) color = '#FFD700';
+            else color = '#FF6347';
+          }
         } else if (typeRoll > jumpingFishThreshold) {
           type = 'JUMPING_FISH';
-          const fishRoll = Math.random();
-          const goldThreshold = g.hasDetector ? 0.2 : 0.4;
-          const greenThreshold = g.hasDetector ? 0.5 : 0.7;
-          
-          if (fishRoll > greenThreshold) color = '#32CD32'; // Green
-          else if (fishRoll > goldThreshold) color = '#FFD700'; // Yellow
-          else color = '#FF6347'; // Red (Default)
+          if (dailyModeRef.current && getDailyChallenge().goldFishBoost) {
+            color = '#FFD700';
+          } else {
+            const fishRoll = Math.random();
+            const goldThreshold = g.hasDetector ? 0.2 : 0.4;
+            const greenThreshold = g.hasDetector ? 0.5 : 0.7;
+            if (fishRoll > greenThreshold) color = '#32CD32';
+            else if (fishRoll > goldThreshold) color = '#FFD700';
+            else color = '#FF6347';
+          }
         } else if (typeRoll > 0.65) {
           type = 'FLAG';
           const flagRoll = Math.random();
@@ -1134,9 +1176,13 @@ export default function App() {
         } else if (typeRoll > 0.45) {
           // ICEBERG (L11+) and POLAR_BEAR (L9+) replace some seal slots at higher levels.
           // Drop chances are gentle so they feel "rare and dangerous", not constant.
-          if (g.level >= 11 && Math.random() < 0.2) {
+          // Daily challenge modifiers may amplify these.
+          const daily = dailyModeRef.current ? getDailyChallenge() : null;
+          const icebergChance = 0.2 * (daily?.icebergRate ?? 1);
+          const bearChance = 0.25 * (daily?.bearRate ?? 1);
+          if (g.level >= 11 && Math.random() < icebergChance) {
             type = 'ICEBERG';
-          } else if (g.level >= 9 && Math.random() < 0.25) {
+          } else if (g.level >= 9 && Math.random() < bearChance) {
             type = 'POLAR_BEAR';
           } else {
             type = 'SEAL';
@@ -1210,12 +1256,14 @@ export default function App() {
                     sounds.powerup();
                   } else {
                     let points = 0;
+                    let isComboItem = false; // FISH and FLAG count toward combo
                     if (obs.type === 'FISH' || obs.type === 'JUMPING_FISH') {
                       if (obs.color === '#32CD32') points = 1500;
                       else if (obs.color === '#FFD700') points = 1000;
                       else points = 500;
                       if (g.hasTripleFish) points *= 3;
                       fishCollectedRef.current += 1;
+                      isComboItem = true;
                       sounds.fish();
                     } else if (obs.type === 'FLAG') {
                       if (obs.color === '#FFA500') {
@@ -1232,8 +1280,28 @@ export default function App() {
                         g.fireTime = 4; // 4 seconds of fire/invincibility
                         sounds.flag();
                       }
+                      isComboItem = true;
                     }
                     if (g.hasKingCrown) points *= 3;
+                    // Daily challenge score multiplier
+                    if (dailyModeRef.current) {
+                      points = Math.round(points * getDailyChallenge().scoreMultiplier);
+                    }
+                    // Combo: increment streak and apply multiplier
+                    if (isComboItem) {
+                      const prev = comboCountRef.current;
+                      const next = prev + 1;
+                      comboCountRef.current = next;
+                      maxComboRef.current = Math.max(maxComboRef.current, next);
+                      points = Math.round(points * comboMultiplier(next));
+                      const tier = justEnteredNewTier(prev, next);
+                      if (tier) {
+                        setComboFlash(tier);
+                        setTimeout(() => setComboFlash(null), 1200);
+                      }
+                      if (next >= 30) unlockAchievement('combo-master');
+                      setComboCount(next);
+                    }
                     g.score += points;
                   }
                   setScore(g.score);
@@ -1276,6 +1344,7 @@ export default function App() {
                   setSpeed(g.speed);
                   sounds.hit();
                   obs.collected = true; // Single-hit; bounce off
+                  if (comboCountRef.current > 0) { comboCountRef.current = 0; setComboCount(0); }
                 }
               }
               return;
@@ -1324,6 +1393,7 @@ export default function App() {
                 setSpeed(g.speed);
                 sounds.hit();
                 obs.collected = true;
+                if (comboCountRef.current > 0) { comboCountRef.current = 0; setComboCount(0); }
               }
             }
             return;
@@ -1365,6 +1435,7 @@ export default function App() {
                   g.speed = Math.max(10, g.speed * 0.3);
                   setSpeed(g.speed);
                   sounds.hit();
+                  if (comboCountRef.current > 0) { comboCountRef.current = 0; setComboCount(0); }
                 }
                 return;
               }
@@ -1383,6 +1454,7 @@ export default function App() {
                 g.hasSkateboard = false; // Skateboards break on stumble!
                 setSpeed(g.speed);
                 sounds.hit();
+                if (comboCountRef.current > 0) { comboCountRef.current = 0; setComboCount(0); }
               }
             }
           }
@@ -2272,7 +2344,7 @@ export default function App() {
 
     update();
     return () => cancelAnimationFrame(frameId.current);
-  }, [gameState]);
+  }, [gameState, unlockAchievement]);
 
   return (
     <div 
@@ -2422,49 +2494,52 @@ export default function App() {
               onPointerDown={(e) => {
                 if (gameState !== 'PLAYING') return;
                 const g = gameRef.current;
-                const rect = canvasRef.current?.getBoundingClientRect();
-                if (!rect) return;
-                const x = e.clientX - rect.left;
-                const internalX = x * (CANVAS_WIDTH / rect.width);
-                
                 g.isTouchAccelerating = true;
                 g.touchDownTime = Date.now();
-                
-                // Determine lane based on touch position
-                if (internalX < CANVAS_WIDTH * 0.3) {
-                  g.touchLane = -1;
-                } else if (internalX > CANVAS_WIDTH * 0.7) {
-                  g.touchLane = 1;
-                } else {
-                  g.touchLane = 0;
-                }
-                playerRef.current.targetLane = g.touchLane;
+                g.touchStartX = e.clientX;
+                g.touchStartY = e.clientY;
+                g.touchSwiped = false;
+                // Stay in current lane on touchdown — swipes will adjust it
+                g.touchLane = playerRef.current.targetLane;
               }}
               onPointerMove={(e) => {
                 if (gameState !== 'PLAYING') return;
                 const g = gameRef.current;
                 if (!g.isTouchAccelerating) return;
-                
-                const rect = canvasRef.current?.getBoundingClientRect();
-                if (!rect) return;
-                const x = e.clientX - rect.left;
-                const internalX = x * (CANVAS_WIDTH / rect.width);
-                
-                if (internalX < CANVAS_WIDTH * 0.3) {
-                  g.touchLane = -1;
-                } else if (internalX > CANVAS_WIDTH * 0.7) {
-                  g.touchLane = 1;
-                } else {
-                  g.touchLane = 0;
+                if (g.touchSwiped) return; // One swipe per gesture
+
+                const dx = e.clientX - g.touchStartX;
+                const dy = e.clientY - g.touchStartY;
+                const SWIPE_THRESHOLD_X = 40;
+                const SWIPE_THRESHOLD_Y = 50;
+
+                // Horizontal dominant → lane change
+                if (Math.abs(dx) > SWIPE_THRESHOLD_X && Math.abs(dx) > Math.abs(dy)) {
+                  if (dx > 0) {
+                    playerRef.current.targetLane = Math.min(1, playerRef.current.targetLane + 1);
+                  } else {
+                    playerRef.current.targetLane = Math.max(-1, playerRef.current.targetLane - 1);
+                  }
+                  g.touchSwiped = true;
+                  g.touchLane = playerRef.current.targetLane;
                 }
-                playerRef.current.targetLane = g.touchLane;
+                // Vertical up swipe → jump
+                else if (dy < -SWIPE_THRESHOLD_Y) {
+                  if (!playerRef.current.isJumping) {
+                    playerRef.current.isJumping = true;
+                    playerRef.current.vy = JUMP_FORCE;
+                    sounds.jump();
+                  }
+                  g.touchSwiped = true;
+                }
               }}
               onPointerUp={() => {
                 if (gameState !== 'PLAYING') return;
                 const g = gameRef.current;
                 g.isTouchAccelerating = false;
                 const duration = Date.now() - g.touchDownTime;
-                if (duration < 250) {
+                // Tap (no swipe + short hold) → jump or double-tap to activate big propeller
+                if (!g.touchSwiped && duration < 250) {
                   const now = Date.now();
                   if (now - g.lastTapTime < 300) {
                     if (g.hasBigPropeller) {
@@ -2483,9 +2558,57 @@ export default function App() {
                   }
                 }
               }}
-              onPointerLeave={() => { if (gameRef.current) gameRef.current.isTouchAccelerating = false; }}
-              onPointerCancel={() => { if (gameRef.current) gameRef.current.isTouchAccelerating = false; }}
+              onPointerLeave={() => {
+                if (gameRef.current) {
+                  gameRef.current.isTouchAccelerating = false;
+                  gameRef.current.touchSwiped = false;
+                }
+              }}
+              onPointerCancel={() => {
+                if (gameRef.current) {
+                  gameRef.current.isTouchAccelerating = false;
+                  gameRef.current.touchSwiped = false;
+                }
+              }}
             />
+
+            {/* Combo HUD — floating at top-center, only visible during play & combo > 0 */}
+            {gameState === 'PLAYING' && comboCount >= 2 && (() => {
+              const tier = getComboTier(comboCount);
+              return (
+                <motion.div
+                  initial={{ y: -20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: -10, opacity: 0 }}
+                  className="absolute top-16 left-1/2 -translate-x-1/2 z-20 pointer-events-none select-none"
+                >
+                  <div className={`flex items-baseline gap-2 px-4 py-2 bg-black/60 backdrop-blur-md border-2 rounded-full ${tier.color || 'text-white border-white/30'}`}>
+                    <span className="text-xs uppercase tracking-widest opacity-70">Combo</span>
+                    <span className="text-2xl sm:text-3xl font-mono font-black tabular-nums">×{comboCount}</span>
+                    {tier.multiplier > 1 && (
+                      <span className="text-sm font-bold opacity-80">{tier.multiplier}x 分數</span>
+                    )}
+                  </div>
+                </motion.div>
+              );
+            })()}
+
+            {/* Combo tier-up flash */}
+            <AnimatePresence>
+              {comboFlash && (
+                <motion.div
+                  key={comboFlash.label}
+                  initial={{ scale: 0.5, opacity: 0, y: 0 }}
+                  animate={{ scale: [1.4, 1, 1], opacity: [0, 1, 1], y: [0, 0, -40] }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 1.2 }}
+                  className={`absolute top-32 left-1/2 -translate-x-1/2 z-30 pointer-events-none select-none font-black text-4xl sm:text-6xl tracking-tighter italic ${comboFlash.color}`}
+                  style={{ textShadow: '0 4px 20px rgba(0,0,0,0.8)' }}
+                >
+                  {comboFlash.label}
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Overlays */}
             <AnimatePresence>
@@ -2868,13 +2991,50 @@ export default function App() {
                   </AnimatePresence>
                 </div>
 
+                {/* Daily Challenge Banner */}
+                <div className={`mb-4 mx-auto max-w-md px-4 py-3 rounded-2xl border-2 transition-all ${
+                  dailyMode
+                    ? 'bg-gradient-to-r from-purple-600/30 to-pink-600/30 border-pink-400'
+                    : 'bg-white/5 border-white/20 hover:border-white/40'
+                }`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-3xl">{dailyConfig.emoji}</span>
+                      <div className="text-left">
+                        <p className="text-[10px] uppercase tracking-widest opacity-70">今日挑戰</p>
+                        <p className="font-bold text-sm sm:text-base">{dailyConfig.name}</p>
+                        <p className="text-[10px] opacity-60 leading-tight">{dailyConfig.description}</p>
+                        {dailyRecord.attempts > 0 && (
+                          <p className="text-[10px] mt-1 text-yellow-300">
+                            今日已挑戰 {dailyRecord.attempts} 次 · 最高 {dailyRecord.bestScore.toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setDailyMode(m => !m)}
+                      className={`shrink-0 px-3 py-2 rounded-lg text-xs font-bold transition-all ${
+                        dailyMode
+                          ? 'bg-pink-500 hover:bg-pink-400 text-white'
+                          : 'bg-white/10 hover:bg-white/20 text-white border border-white/30'
+                      }`}
+                    >
+                      {dailyMode ? '✓ 已啟用' : '啟用'}
+                    </button>
+                  </div>
+                </div>
+
                 <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center items-center flex-wrap">
                   <button
                     onClick={() => initGame(false)}
-                    className="group relative px-10 sm:px-12 py-3 sm:py-4 bg-blue-500 hover:bg-blue-400 rounded-full font-bold text-lg sm:text-xl transition-all hover:scale-105 active:scale-95 flex items-center gap-3"
+                    className={`group relative px-10 sm:px-12 py-3 sm:py-4 rounded-full font-bold text-lg sm:text-xl transition-all hover:scale-105 active:scale-95 flex items-center gap-3 ${
+                      dailyMode
+                        ? 'bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-400 hover:to-purple-500'
+                        : 'bg-blue-500 hover:bg-blue-400'
+                    }`}
                   >
                     <Play fill="currentColor" size={20} />
-                    開始冒險
+                    {dailyMode ? `挑戰 ${dailyConfig.name}` : '開始冒險'}
                   </button>
 
                   <button

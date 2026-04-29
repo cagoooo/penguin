@@ -10,7 +10,8 @@ export type AchievementId =
   | 'shop-spree'
   | 'fish-feast'
   | 'survivor'
-  | 'speedster';
+  | 'speedster'
+  | 'combo-master';
 
 export interface AchievementDef {
   id: AchievementId;
@@ -33,6 +34,7 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'fish-feast', title: '魚之饗宴', description: '單局收集 50 條魚', icon: '🐟' },
   { id: 'survivor', title: '南極之心', description: '在第 7 關後仍存活', icon: '❄️' },
   { id: 'speedster', title: '極速企鵝', description: '達到 80 km/h 以上時速', icon: '⚡' },
+  { id: 'combo-master', title: '連擊大師', description: '單局達成 30 連擊', icon: '🔥' },
 ];
 
 const STORAGE_KEY = 'penguin_achievements_v1';
