@@ -1,13 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trophy, Timer, MapPin, Play, RotateCcw, ChevronRight, ChevronLeft, ArrowUp, Maximize, Minimize, ShoppingCart, Heart, Zap, Clock, Smartphone, Shield, Search, Wind, Compass, Rocket, Fish, Volume2, VolumeX, Pause } from 'lucide-react';
+import { Trophy, Timer, MapPin, Play, RotateCcw, ChevronRight, ChevronLeft, ArrowUp, Maximize, Minimize, ShoppingCart, Heart, Zap, Clock, Smartphone, Shield, Search, Wind, Compass, Rocket, Fish, Volume2, VolumeX, Pause, Camera } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { ALL_SHOP_ITEMS as SHOP_DATA, getShopItem, type ShopItemMeta } from './shop/items';
 import { initAudio, playTone, sounds, mutedRef, pausedRef } from './audio/sounds';
 import { startBGM, stopBGM } from './audio/bgm';
 import { useAchievements } from './achievements/useAchievements';
-import { submitScore } from './leaderboard/firebase';
-import { useLeaderboard } from './leaderboard/useLeaderboard';
+import { generateShareImage, shareScore } from './utils/shareImage';
+import { SKINS, drawSkinAccessories, getSkin, isSkinUnlocked, loadSkin, saveSkin, type SkinId } from './skins/skins';
+
+// Firebase lives in its own ~85KB gzip chunk; only loaded when the player opens
+// the leaderboard or hits GAME_OVER (where the submit form appears).
+const LeaderboardModal = lazy(() => import('./leaderboard/LeaderboardModal'));
+const ScoreSubmitForm = lazy(() => import('./leaderboard/ScoreSubmitForm'));
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -137,23 +142,22 @@ export default function App() {
   const fishCollectedRef = useRef(0);
   const shopPurchasesRef = useRef(0);
 
-  // Phase 4: leaderboard
+  // Phase 4: leaderboard (lazy-loaded; submit form has its own state)
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [playerName, setPlayerName] = useState<string>(() => {
     try { return localStorage.getItem('penguin_player_name') || ''; } catch { return ''; }
   });
-  const [submitState, setSubmitState] = useState<'idle' | 'submitting' | 'submitted' | 'error'>('idle');
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const submittedScoreRef = useRef<number | null>(null);
-  const leaderboard = useLeaderboard(showLeaderboard || gameState === 'GAME_OVER', 10);
+
+  // Phase 4: penguin skins
+  const [currentSkin, setCurrentSkin] = useState<SkinId>(loadSkin);
+  const [showSkinPicker, setShowSkinPicker] = useState(false);
+  const skinRef = useRef<SkinId>(currentSkin);
+  useEffect(() => { skinRef.current = currentSkin; saveSkin(currentSkin); }, [currentSkin]);
 
   // Best score persistence on GAME_OVER
   useEffect(() => {
     if (gameState !== 'GAME_OVER') {
       setIsNewRecord(false);
-      setSubmitState('idle');
-      setSubmitError(null);
-      submittedScoreRef.current = null;
       return;
     }
     if (score > bestScore) {
@@ -189,25 +193,33 @@ export default function App() {
     if (speed >= 80) unlockAchievement('speedster');
   }, [gameState, speed, unlockAchievement]);
 
-  const handleSubmitScore = async () => {
-    const trimmed = playerName.trim();
-    if (!trimmed) {
-      setSubmitError('請先輸入暱稱');
-      return;
-    }
-    if (submittedScoreRef.current === score) return; // Prevent double-submit
-    setSubmitState('submitting');
-    setSubmitError(null);
+  const [shareState, setShareState] = useState<'idle' | 'generating' | 'shared' | 'downloaded' | 'error'>('idle');
+
+  const handleShareScore = async () => {
+    if (shareState === 'generating') return;
+    setShareState('generating');
     try {
-      await submitScore(trimmed, score, level);
-      try { localStorage.setItem('penguin_player_name', trimmed); } catch {}
-      submittedScoreRef.current = score;
-      setSubmitState('submitted');
+      const blob = await generateShareImage({
+        score,
+        level,
+        name: playerName.trim() || undefined,
+        isNewRecord,
+        bestScore,
+        achievementsCount: achievementsUnlocked.size,
+        achievementsTotal: allAchievements.length,
+      });
+      const result = await shareScore(blob, { score, level });
+      setShareState(result);
+      setTimeout(() => setShareState('idle'), 3000);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
-      setSubmitError(msg);
-      setSubmitState('error');
+      console.error('[share] failed', err);
+      setShareState('error');
+      setTimeout(() => setShareState('idle'), 3000);
     }
+  };
+
+  const handlePlayerNameChange = (name: string) => {
+    setPlayerName(name);
   };
 
   // Mute toggle: persist + stop BGM if muted mid-game
@@ -1879,6 +1891,13 @@ export default function App() {
         ctx.fill();
       }
 
+      // Skin accessories (red scarf, sunglasses, crown, golden sheen, ...)
+      drawSkinAccessories(ctx, skinRef.current, {
+        isJumping,
+        hasSkateboard: g.hasSkateboard && !p.isJumping && p.stumbleTime <= 0,
+        animFrame: p.animFrame,
+      });
+
       // Propeller
       if (g.propellerTime > 0) {
         ctx.save();
@@ -1889,7 +1908,7 @@ export default function App() {
         ctx.fillRect(-30, -2, 60, 4);
         ctx.fillRect(-2, -30, 4, 60);
         ctx.restore();
-        
+
         // Propeller shaft
         ctx.fillStyle = '#8B4513';
         ctx.fillRect(-2, -85, 4, 15);
@@ -2526,6 +2545,14 @@ export default function App() {
                     成就 {achievementsUnlocked.size}/{allAchievements.length}
                   </button>
 
+                  <button
+                    onClick={() => setShowSkinPicker(true)}
+                    className="px-6 py-2 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-400/40 rounded-full font-bold text-sm transition-all flex items-center gap-2"
+                  >
+                    <span>{getSkin(currentSkin).emoji}</span>
+                    換造型
+                  </button>
+
                   {!isFullscreen && isPortrait && (
                     <button
                       onClick={() => { initAudio(); toggleFullscreen(); }}
@@ -2570,36 +2597,15 @@ export default function App() {
                   <p className="text-3xl sm:text-5xl font-mono font-bold text-yellow-300">{bestScore}</p>
                 </div>
               </div>
-              {/* Submit to leaderboard */}
-              <div className="bg-black/30 border border-white/20 rounded-2xl p-3 sm:p-4 mb-4 w-full max-w-sm">
-                {submitState === 'submitted' ? (
-                  <p className="text-green-300 text-sm sm:text-base font-bold flex items-center justify-center gap-2">
-                    ✓ 已上傳到排行榜！
-                  </p>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={playerName}
-                        onChange={e => setPlayerName(e.target.value.slice(0, 12))}
-                        placeholder="輸入暱稱（最多 12 字）"
-                        maxLength={12}
-                        className="flex-1 px-3 py-2 bg-white/10 border border-white/30 rounded-lg text-sm placeholder-white/40 focus:outline-none focus:border-white/60"
-                        disabled={submitState === 'submitting'}
-                      />
-                      <button
-                        onClick={handleSubmitScore}
-                        disabled={submitState === 'submitting' || !playerName.trim()}
-                        className="px-4 py-2 bg-blue-500 hover:bg-blue-400 rounded-lg font-bold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
-                      >
-                        {submitState === 'submitting' ? '上傳中...' : '上傳'}
-                      </button>
-                    </div>
-                    {submitError && <p className="text-red-200 text-xs">{submitError}</p>}
-                  </div>
-                )}
-              </div>
+              {/* Submit to leaderboard (lazy-loaded — Firebase chunk loads here) */}
+              <Suspense fallback={<div className="h-[88px] mb-4" />}>
+                <ScoreSubmitForm
+                  score={score}
+                  level={level}
+                  playerName={playerName}
+                  onPlayerNameChange={handlePlayerNameChange}
+                />
+              </Suspense>
 
               <div className="flex gap-3 flex-wrap justify-center">
                 <button
@@ -2610,8 +2616,19 @@ export default function App() {
                   再試一次
                 </button>
                 <button
+                  onClick={handleShareScore}
+                  disabled={shareState === 'generating'}
+                  className="px-5 py-3 bg-pink-500/20 border border-pink-300/40 hover:bg-pink-500/30 text-white rounded-full font-bold text-sm transition-all flex items-center gap-2 disabled:opacity-50"
+                >
+                  <Camera size={16} className="text-pink-200" />
+                  {shareState === 'generating' ? '產生中…' :
+                   shareState === 'shared' ? '✓ 已分享' :
+                   shareState === 'downloaded' ? '✓ 已下載' :
+                   shareState === 'error' ? '⚠ 失敗' : '分享'}
+                </button>
+                <button
                   onClick={() => setShowLeaderboard(true)}
-                  className="px-6 py-3 bg-yellow-500/20 border border-yellow-300/40 hover:bg-yellow-500/30 text-white rounded-full font-bold text-sm transition-all flex items-center gap-2"
+                  className="px-5 py-3 bg-yellow-500/20 border border-yellow-300/40 hover:bg-yellow-500/30 text-white rounded-full font-bold text-sm transition-all flex items-center gap-2"
                 >
                   <Trophy size={16} className="text-yellow-300" />
                   排行榜
@@ -2659,6 +2676,7 @@ export default function App() {
                   <p className="text-4xl font-mono font-bold">+{Math.floor(time * 10)}</p>
                 </div>
               </div>
+              <div className="flex gap-3 flex-wrap justify-center items-center">
               <button
                 onClick={() => initGame(true)}
                 className="px-10 py-4 bg-white text-green-900 rounded-full font-bold text-xl hover:bg-green-50 transition-all flex items-center gap-3"
@@ -2666,6 +2684,18 @@ export default function App() {
                 <ChevronRight />
                 下一關
               </button>
+              <button
+                onClick={handleShareScore}
+                disabled={shareState === 'generating'}
+                className="px-5 py-3 bg-pink-500/20 border border-pink-300/40 hover:bg-pink-500/30 text-white rounded-full font-bold text-sm transition-all flex items-center gap-2 disabled:opacity-50"
+              >
+                <Camera size={16} className="text-pink-200" />
+                {shareState === 'generating' ? '產生中…' :
+                 shareState === 'shared' ? '✓ 已分享' :
+                 shareState === 'downloaded' ? '✓ 已下載' :
+                 shareState === 'error' ? '⚠ 失敗' : '分享'}
+              </button>
+              </div>
             </motion.div>
           )}
 
@@ -2739,72 +2769,12 @@ export default function App() {
     </AnimatePresence>
   </div>
 
-  {/* Leaderboard Modal */}
-  <AnimatePresence>
-    {showLeaderboard && (
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={() => setShowLeaderboard(false)}
-        className="fixed inset-0 z-[1100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
-      >
-        <motion.div
-          initial={{ scale: 0.9, y: 20 }}
-          animate={{ scale: 1, y: 0 }}
-          exit={{ scale: 0.95, y: 10 }}
-          onClick={e => e.stopPropagation()}
-          className="bg-gradient-to-b from-[#1a1a3a] to-[#0a0a1a] border-2 border-cyan-400/40 rounded-2xl max-w-md w-full max-h-[80vh] overflow-y-auto p-6"
-        >
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-black tracking-tight flex items-center gap-2">
-              <Trophy className="text-cyan-300" /> 全球排行榜
-            </h2>
-            <button
-              onClick={() => setShowLeaderboard(false)}
-              className="px-4 py-1 bg-white/10 hover:bg-white/20 rounded-full text-sm transition-all"
-            >
-              關閉
-            </button>
-          </div>
-          {leaderboard.loading && <p className="text-white/50 text-center py-8">載入中...</p>}
-          {leaderboard.error && (
-            <p className="text-red-300 text-sm py-4">⚠️ 連線失敗：{leaderboard.error.message}</p>
-          )}
-          {!leaderboard.loading && !leaderboard.error && leaderboard.entries.length === 0 && (
-            <p className="text-white/50 text-center py-8">還沒有人上榜，當第一個吧！</p>
-          )}
-          {leaderboard.entries.length > 0 && (
-            <ol className="space-y-1">
-              {leaderboard.entries.map((entry, idx) => (
-                <li
-                  key={entry.id}
-                  className={`flex items-center gap-3 px-3 py-2 rounded-lg ${
-                    idx === 0
-                      ? 'bg-yellow-500/20 border border-yellow-400/40'
-                      : idx === 1
-                      ? 'bg-gray-300/15 border border-gray-300/30'
-                      : idx === 2
-                      ? 'bg-orange-500/15 border border-orange-400/30'
-                      : 'bg-white/5'
-                  }`}
-                >
-                  <span className="font-mono w-7 text-center font-bold opacity-70 text-sm">
-                    {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
-                  </span>
-                  <span className="flex-1 truncate font-medium text-sm">{entry.name}</span>
-                  <span className="text-xs opacity-60">L{entry.level}</span>
-                  <span className="font-mono font-bold text-sm tabular-nums">
-                    {entry.score.toLocaleString()}
-                  </span>
-                </li>
-              ))}
-            </ol>
-          )}
-        </motion.div>
-      </motion.div>
-    )}
-  </AnimatePresence>
+  {/* Leaderboard Modal (lazy-loaded — Firebase chunk loads here) */}
+  {showLeaderboard && (
+    <Suspense fallback={null}>
+      <LeaderboardModal onClose={() => setShowLeaderboard(false)} />
+    </Suspense>
+  )}
 
   {/* Achievements Modal */}
   <AnimatePresence>
@@ -2854,6 +2824,76 @@ export default function App() {
               );
             })}
           </div>
+        </motion.div>
+      </motion.div>
+    )}
+  </AnimatePresence>
+
+  {/* Skin Picker Modal */}
+  <AnimatePresence>
+    {showSkinPicker && (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={() => setShowSkinPicker(false)}
+        className="fixed inset-0 z-[1100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
+      >
+        <motion.div
+          initial={{ scale: 0.9, y: 20 }}
+          animate={{ scale: 1, y: 0 }}
+          exit={{ scale: 0.95, y: 10 }}
+          onClick={e => e.stopPropagation()}
+          className="bg-gradient-to-b from-[#1a1a3a] to-[#0a0a1a] border-2 border-purple-400/40 rounded-2xl max-w-lg w-full max-h-[80vh] overflow-y-auto p-6"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-black tracking-tight flex items-center gap-2">
+              <span>🎨</span> 換造型
+            </h2>
+            <button
+              onClick={() => setShowSkinPicker(false)}
+              className="px-4 py-1 bg-white/10 hover:bg-white/20 rounded-full text-sm transition-all"
+            >
+              關閉
+            </button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {SKINS.map(skin => {
+              const unlocked = isSkinUnlocked(skin, achievementsUnlocked, allAchievements.length);
+              const selected = currentSkin === skin.id;
+              return (
+                <button
+                  key={skin.id}
+                  onClick={() => unlocked && setCurrentSkin(skin.id)}
+                  disabled={!unlocked}
+                  className={`p-3 rounded-xl border-2 transition-all text-center ${
+                    selected
+                      ? 'border-purple-400 bg-purple-500/20 shadow-[0_0_15px_rgba(168,85,247,0.4)]'
+                      : unlocked
+                      ? 'border-white/20 bg-white/5 hover:border-purple-400/50 cursor-pointer'
+                      : 'border-white/10 bg-white/5 opacity-40 cursor-not-allowed'
+                  }`}
+                >
+                  <div className="text-4xl mb-1">{skin.emoji}</div>
+                  <p className="font-bold text-sm">{skin.name}</p>
+                  <p className="text-xs opacity-70 mt-0.5">{skin.description}</p>
+                  {!unlocked && (
+                    <p className="text-[10px] mt-2 opacity-60">🔒 解開{
+                      skin.id === 'golden' ? '所有成就' :
+                      skin.unlockAchievement === 'level-5' ? '冰原行者' :
+                      skin.unlockAchievement === 'level-10' ? '極地勇者' :
+                      skin.unlockAchievement === 'god-mode' ? '上古祕技' :
+                      '神秘條件'
+                    }</p>
+                  )}
+                  {selected && (
+                    <p className="text-[10px] mt-2 text-purple-300 font-bold">✓ 使用中</p>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[10px] text-white/40 text-center mt-4">造型只是視覺，不影響玩法</p>
         </motion.div>
       </motion.div>
     )}
