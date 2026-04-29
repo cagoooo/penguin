@@ -14,7 +14,10 @@
 | **Phase 3** 程式碼健康 | ✅ 100% | 模組化／ESLint／TS strict／17 單元測試 |
 | **Phase 4** 擴充功能 | ✅ 95% | PWA／成就／Firebase 排行榜（剩朋友邀請連結） |
 | **🔒 安全強化** | ✅ 100% | API key 限制 + Secret Scanning 處理 |
-| **Phase 5+** 未來改良 | ⬜ 待規劃 | 50+ 項建議見 [§六](#六未來改良藍圖phase-512) |
+| **Phase 5（部分）** 改良包 | ✅ | 觸覺回饋／截圖分享／動態載入／企鵝皮膚 |
+| **Phase 6（部分）** 遊戲擴充 | ✅ | 北極熊 L9+／冰山 L11+／暴風雪 L13+ |
+| **🎨 品牌素材** | ✅ | 1200×630 OG 圖、512×512 favicon、Apple Touch Icon |
+| **Phase 5+ 6+** 其餘建議 | ⬜ 規劃中 | 詳見 [§六](#六未來改良藍圖phase-512) |
 
 **目前統計**：
 - 📦 Bundle：~227 KB gzip（react+motion+game+firebase 拆成 4 chunks）

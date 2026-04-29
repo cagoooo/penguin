@@ -51,9 +51,18 @@ interface Obstacle {
   id: number;
   z: number; // Distance from player (0 to 2000)
   lane: number; // -1 (left), 0 (center), 1 (right)
-  type: 'CRACK' | 'SEAL' | 'HOLE' | 'FISH' | 'FLAG' | 'BLUE_FLAG' | 'JUMPING_FISH' | 'RAINBOW_FLAG' | 'SHOP_STATION' | 'ICE_PATCH' | 'SNOWDRIFT';
+  type:
+    | 'CRACK' | 'SEAL' | 'HOLE'
+    | 'FISH' | 'FLAG' | 'BLUE_FLAG' | 'JUMPING_FISH' | 'RAINBOW_FLAG'
+    | 'SHOP_STATION' | 'ICE_PATCH' | 'SNOWDRIFT'
+    | 'POLAR_BEAR'  // L9+: lane-tracking AI, costs 2 lives on hit
+    | 'ICEBERG';    // L11+: 1.5-lane wide, must jump over
   collected?: boolean;
   onFire?: boolean;
+  /** Dynamic lane offset (-1.5..1.5) for moving obstacles like POLAR_BEAR. */
+  laneOffset?: number;
+  /** Walking animation phase for POLAR_BEAR. */
+  walkPhase?: number;
   fishY?: number;
   fishVy?: number;
   fishVx?: number; // Horizontal speed for parabolic jump
@@ -416,7 +425,12 @@ export default function App() {
     traction: 1.0,
     isGamepadAccelerating: false,
     isGodMode: false,
-    pendingShopItems: [] as string[]
+    pendingShopItems: [] as string[],
+    // L13+: blizzard storm — periodic visibility-reduction events
+    blizzardActive: 0,    // seconds remaining; 0 = inactive
+    blizzardStrength: 0,  // 0..1 fade-in/out (avoids snap)
+    nextBlizzardAt: 0,    // distance threshold for next blizzard onset
+    snowflakes: [] as { x: number; y: number; speed: number; size: number; sway: number }[],
   });
 
   const auroraBorealis = useRef(Array.from({ length: 5 }).map((_, i) => ({
@@ -546,6 +560,11 @@ export default function App() {
     g.nextCurveChange = 800;
     g.fireTime = 0;
     g.traction = 1.0;
+    // Reset blizzard state per level
+    g.blizzardActive = 0;
+    g.blizzardStrength = 0;
+    g.nextBlizzardAt = g.distance - 800; // First storm hits ~800m into level 13+
+    g.snowflakes = [];
 
     setTime(g.time);
     setDistance(g.levelDistance);
@@ -868,6 +887,37 @@ export default function App() {
         g.fireTime -= 1/60;
       }
 
+      // Blizzard event (L13+): randomly triggered storm reducing visibility for ~5 seconds.
+      // Strength fades in/out smoothly so the world doesn't snap white.
+      if (g.level >= 13) {
+        if (g.blizzardActive > 0) {
+          g.blizzardActive -= 1 / 60;
+          // Ramp strength toward 1 while active, toward 0 once expired
+          g.blizzardStrength += (1 - g.blizzardStrength) * 0.04;
+          if (g.blizzardActive <= 0) {
+            g.blizzardActive = 0;
+            // Schedule next storm 800-1500m further along
+            g.nextBlizzardAt = g.distance - (800 + Math.random() * 700);
+          }
+        } else if (g.distance < g.nextBlizzardAt) {
+          // Trigger a new storm
+          g.blizzardActive = 4 + Math.random() * 3; // 4-7 seconds
+          // Spawn a fresh field of snowflakes
+          g.snowflakes = Array.from({ length: 80 }, () => ({
+            x: Math.random() * CANVAS_WIDTH,
+            y: Math.random() * CANVAS_HEIGHT,
+            speed: 2 + Math.random() * 5,
+            size: 1 + Math.random() * 3,
+            sway: Math.random() * Math.PI * 2,
+          }));
+        }
+        // Always fade strength toward target (active=1, inactive=0)
+        const target = g.blizzardActive > 0 ? 1 : 0;
+        g.blizzardStrength += (target - g.blizzardStrength) * 0.04;
+      } else {
+        g.blizzardStrength = 0;
+      }
+
       // 2.5 Update Environment (Curves & Sea)
       g.curve += (g.targetCurve - g.curve) * 0.05;
       
@@ -1021,6 +1071,22 @@ export default function App() {
             }
           }
         }
+
+        // Polar bear AI: tracks the player's lane while still far away.
+        // Once it's close enough to commit (z < 600) the bear stops tracking
+        // so the player has a fair window to dodge.
+        if (obs.type === 'POLAR_BEAR') {
+          if (obs.laneOffset === undefined) obs.laneOffset = 0;
+          if (obs.walkPhase === undefined) obs.walkPhase = 0;
+          obs.walkPhase += 0.15;
+          if (obs.z > 600) {
+            const targetLane = p.targetLane - obs.lane;
+            const trackingSpeed = 0.012; // Slow enough that running can outrun it
+            obs.laneOffset += (targetLane - obs.laneOffset) * trackingSpeed;
+            // Clamp so the bear never crosses into adjacent lanes too aggressively
+            obs.laneOffset = Math.max(-1.2, Math.min(1.2, obs.laneOffset));
+          }
+        }
       });
       // Remove off-screen obstacles
       obstaclesRef.current = obstaclesRef.current.filter(obs => obs.z > -100);
@@ -1066,7 +1132,15 @@ export default function App() {
           else if (flagRoll > 0.5) color = '#FFFF00'; // Yellow
           else color = '#FF0000'; // Red
         } else if (typeRoll > 0.45) {
-          type = 'SEAL';
+          // ICEBERG (L11+) and POLAR_BEAR (L9+) replace some seal slots at higher levels.
+          // Drop chances are gentle so they feel "rare and dangerous", not constant.
+          if (g.level >= 11 && Math.random() < 0.2) {
+            type = 'ICEBERG';
+          } else if (g.level >= 9 && Math.random() < 0.25) {
+            type = 'POLAR_BEAR';
+          } else {
+            type = 'SEAL';
+          }
         } else if (typeRoll > 0.35) {
           // ICE_PATCH starts appearing after level 7
           type = (g.level >= 7) ? 'ICE_PATCH' : 'HOLE';
@@ -1080,13 +1154,18 @@ export default function App() {
           type = 'HOLE';
         }
 
-        obstaclesRef.current.push({
+        const newObs: Obstacle = {
           id: Date.now() + Math.random(),
           z: spawnZ,
           lane: Math.floor(Math.random() * 3) - 1,
           type,
-          color
-        });
+          color,
+        };
+        if (type === 'POLAR_BEAR') {
+          newObs.laneOffset = 0;
+          newObs.walkPhase = 0;
+        }
+        obstaclesRef.current.push(newObs);
         g.lastObstacleZ = spawnZ;
       }
       g.lastObstacleZ -= currentSpeed;
@@ -1166,7 +1245,90 @@ export default function App() {
           // 5.2 Check for Obstacle Collision (Hole, Crack, Seal, and JUMPING_FISH's Hole)
           const holeX = obs.lane * 150;
           const holeDist = Math.abs(p.x - holeX);
-          
+
+          // ICEBERG: ~1.5 lane wide. Cannot dodge by lane-switching, must jump.
+          // Invincibility powerups still let you crash through it (it's a big chunk of ice).
+          if (obs.type === 'ICEBERG' && !obs.collected) {
+            const icebergHalfWidth = 110; // Wider than a single lane (75)
+            if (Math.abs(p.x - obs.lane * 150) < icebergHalfWidth) {
+              const isJumpingOver = p.y < -30;
+              if (isJumpingOver) {
+                if (!obs.collected) {
+                  obs.collected = true;
+                  g.score += 1500;
+                  setScore(g.score);
+                }
+              } else {
+                if (g.fireTime > 0 || g.nitroTime > 0 || g.isGodMode) {
+                  obs.onFire = true;
+                  obs.collected = true;
+                  g.score += 4000;
+                  setScore(g.score);
+                } else if (g.hasShield) {
+                  g.hasShield = false;
+                  obs.collected = true;
+                } else if (p.stumbleTime <= 0) {
+                  // Hard impact: heavier than a seal, knocks back speed to floor
+                  p.stumbleTime = 1.4;
+                  p.stumbleSide = p.x > obs.lane * 150 ? 1 : -1;
+                  g.speed = 20;
+                  g.hasSkateboard = false;
+                  setSpeed(g.speed);
+                  sounds.hit();
+                  obs.collected = true; // Single-hit; bounce off
+                }
+              }
+              return;
+            }
+          }
+
+          // POLAR_BEAR: tracks player; uses dynamic laneOffset rather than static lane
+          if (obs.type === 'POLAR_BEAR' && !obs.collected) {
+            const bearX = (obs.lane + (obs.laneOffset ?? 0)) * 150;
+            const bearDist = Math.abs(p.x - bearX);
+            if (bearDist < 70) {
+              const isJumpingOver = p.y < -30;
+              if (isJumpingOver) return; // Player can leap over the bear
+              if (g.fireTime > 0 || g.nitroTime > 0 || g.isGodMode) {
+                obs.onFire = true;
+                obs.collected = true;
+                g.score += 6000;
+                setScore(g.score);
+                return;
+              }
+              if (g.hasShield) {
+                g.hasShield = false;
+                obs.collected = true;
+                return;
+              }
+              if (p.stumbleTime <= 0) {
+                // Polar bear is brutal: -2 lives if available, else immediate game over
+                if (g.lives >= 2) {
+                  g.lives -= 2;
+                  setLives(g.lives);
+                } else if (g.lives === 1) {
+                  g.lives = 0;
+                  setLives(0);
+                  // Also halve remaining time as a kicker
+                  g.time = Math.max(5, g.time / 2);
+                  setTime(g.time);
+                } else {
+                  // No lives → time penalty + heavy stumble
+                  g.time = Math.max(0, g.time - 15);
+                  setTime(g.time);
+                }
+                p.stumbleTime = 1.6;
+                p.stumbleSide = p.x > bearX ? 1 : -1;
+                g.speed = 15;
+                g.hasSkateboard = false;
+                setSpeed(g.speed);
+                sounds.hit();
+                obs.collected = true;
+              }
+            }
+            return;
+          }
+
           if (holeDist < 60) {
             if (obs.type === 'HOLE' || obs.type === 'CRACK' || obs.type === 'SEAL' || obs.type === 'JUMPING_FISH' || obs.type === 'SNOWDRIFT' || obs.type === 'ICE_PATCH') {
               const isJumpingOver = p.y < -30;
@@ -1576,6 +1738,152 @@ export default function App() {
           ctx.beginPath();
           ctx.ellipse(0, 0, 60, 15, 0, 0, Math.PI * 2);
           ctx.fill();
+        } else if (obs.type === 'ICEBERG') {
+          // ICEBERG: large jagged ice peak, ~1.5 lanes wide. Draw with shadow base + 3 jagged peaks.
+          // Base shadow on ground
+          ctx.fillStyle = 'rgba(40, 60, 120, 0.35)';
+          ctx.beginPath();
+          ctx.ellipse(0, 5, 110, 20, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Iceberg body — jagged silhouette
+          ctx.fillStyle = '#cfe6ff';
+          ctx.beginPath();
+          ctx.moveTo(-100, 5);
+          ctx.lineTo(-80, -50);
+          ctx.lineTo(-55, -20);
+          ctx.lineTo(-30, -110);
+          ctx.lineTo(-5, -55);
+          ctx.lineTo(20, -135);
+          ctx.lineTo(45, -65);
+          ctx.lineTo(70, -90);
+          ctx.lineTo(95, -25);
+          ctx.lineTo(100, 5);
+          ctx.closePath();
+          ctx.fill();
+
+          // Highlight (sun-lit side)
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.moveTo(-30, -110);
+          ctx.lineTo(20, -135);
+          ctx.lineTo(0, -85);
+          ctx.lineTo(-15, -85);
+          ctx.closePath();
+          ctx.fill();
+
+          // Shadow side
+          ctx.fillStyle = 'rgba(80, 120, 180, 0.45)';
+          ctx.beginPath();
+          ctx.moveTo(20, -135);
+          ctx.lineTo(70, -90);
+          ctx.lineTo(45, -65);
+          ctx.closePath();
+          ctx.fill();
+
+          // Outline
+          ctx.strokeStyle = '#5982bd';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(-100, 5);
+          ctx.lineTo(-80, -50);
+          ctx.lineTo(-55, -20);
+          ctx.lineTo(-30, -110);
+          ctx.lineTo(-5, -55);
+          ctx.lineTo(20, -135);
+          ctx.lineTo(45, -65);
+          ctx.lineTo(70, -90);
+          ctx.lineTo(95, -25);
+          ctx.lineTo(100, 5);
+          ctx.stroke();
+
+          if (obs.onFire) {
+            drawFire(0, -50, 1.5);
+          }
+        } else if (obs.type === 'POLAR_BEAR') {
+          // POLAR_BEAR: walks along lane, can drift between lanes via laneOffset.
+          // The static lane is drawn at obs.lane; the laneOffset moves it horizontally
+          // by adjusting x (we're already translated to obs.lane * 150 by the project()
+          // call upstream). Apply the offset here.
+          const offsetX = (obs.laneOffset ?? 0) * 150;
+          ctx.save();
+          ctx.translate(offsetX, 0);
+
+          // Shadow
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.25)';
+          ctx.beginPath();
+          ctx.ellipse(0, 5, 45, 10, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Walking sway
+          const phase = obs.walkPhase ?? 0;
+          const bob = Math.sin(phase) * 3;
+          ctx.translate(0, -bob);
+
+          // Body (off-white fur)
+          ctx.fillStyle = '#f5f5f0';
+          ctx.beginPath();
+          ctx.ellipse(0, -25, 42, 28, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Head
+          ctx.beginPath();
+          ctx.ellipse(0, -65, 30, 28, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Ears
+          ctx.beginPath();
+          ctx.arc(-18, -88, 8, 0, Math.PI * 2);
+          ctx.arc(18, -88, 8, 0, Math.PI * 2);
+          ctx.fill();
+          // Inner ears
+          ctx.fillStyle = '#d4b8a0';
+          ctx.beginPath();
+          ctx.arc(-18, -88, 4, 0, Math.PI * 2);
+          ctx.arc(18, -88, 4, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Snout
+          ctx.fillStyle = '#fafaf2';
+          ctx.beginPath();
+          ctx.ellipse(0, -55, 14, 10, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Eyes
+          ctx.fillStyle = '#0a0a0a';
+          ctx.beginPath();
+          ctx.arc(-10, -68, 3, 0, Math.PI * 2);
+          ctx.arc(10, -68, 3, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Nose
+          ctx.fillStyle = '#1a1a1a';
+          ctx.beginPath();
+          ctx.ellipse(0, -55, 4, 3, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Legs (alternating walk)
+          ctx.fillStyle = '#f5f5f0';
+          const legA = Math.sin(phase) * 6;
+          const legB = Math.sin(phase + Math.PI) * 6;
+          ctx.beginPath();
+          ctx.ellipse(-22, 0 + legA, 10, 8, 0, 0, Math.PI * 2);
+          ctx.ellipse(22, 0 + legB, 10, 8, 0, 0, Math.PI * 2);
+          ctx.ellipse(-32, 0 + legB, 10, 8, 0, 0, Math.PI * 2);
+          ctx.ellipse(32, 0 + legA, 10, 8, 0, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Subtle outline
+          ctx.strokeStyle = '#c4c4b8';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.ellipse(0, -25, 42, 28, 0, 0, Math.PI * 2);
+          ctx.stroke();
+
+          if (obs.onFire) {
+            drawFire(0, -40, 1.3);
+          }
+          ctx.restore();
         } else if (obs.type === 'SEAL') {
           // Grey rim (top half)
           ctx.fillStyle = '#c0c0c0';
@@ -1920,6 +2228,46 @@ export default function App() {
       }
 
       ctx.restore();
+
+      // Blizzard overlay (drawn last so it covers everything including the penguin)
+      if (g.blizzardStrength > 0.02) {
+        const s = g.blizzardStrength;
+        // Whiteout veil
+        ctx.fillStyle = `rgba(220, 230, 245, ${0.45 * s})`;
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        // Snowflakes drift diagonally
+        ctx.fillStyle = `rgba(255, 255, 255, ${0.85 * s})`;
+        for (const f of g.snowflakes) {
+          // Update position
+          f.sway += 0.08;
+          f.x += Math.sin(f.sway) * 0.8 + 1.5;
+          f.y += f.speed;
+          if (f.y > CANVAS_HEIGHT) {
+            f.y = -10;
+            f.x = Math.random() * CANVAS_WIDTH;
+          }
+          if (f.x > CANVAS_WIDTH) f.x = 0;
+          ctx.beginPath();
+          ctx.arc(f.x, f.y, f.size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        // Vignette to push contrast
+        const grad = ctx.createRadialGradient(
+          CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH * 0.2,
+          CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2, CANVAS_WIDTH * 0.7,
+        );
+        grad.addColorStop(0, 'rgba(200, 220, 240, 0)');
+        grad.addColorStop(1, `rgba(180, 200, 230, ${0.5 * s})`);
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+        // Warning text on the first half of the storm
+        if (g.blizzardActive > 2.5) {
+          ctx.fillStyle = `rgba(20, 30, 60, ${0.6 * s})`;
+          ctx.font = 'bold 36px sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('⚠ 暴風雪來襲 ⚠', CANVAS_WIDTH / 2, 60);
+        }
+      }
     };
 
     update();

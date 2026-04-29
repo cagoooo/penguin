@@ -8,20 +8,28 @@
     <meta name="theme-color" content="#0a0a1a" />
     <meta name="author" content="阿凱老師" />
 
-    <!-- Open Graph -->
+    <!-- Open Graph (absolute URLs — social crawlers don't resolve relative paths) -->
     <meta property="og:title" content="南極大冒險 · 企鵝跑酷" />
-    <meta property="og:description" content="Konami 1983 經典遊戲重製版，由阿凱老師為石門國小學生製作。" />
+    <meta property="og:description" content="Konami 1983 經典遊戲重製版，由阿凱老師為石門國小學生製作。16 種補給站道具、10 個成就、雲端排行榜。" />
+    <meta property="og:image" content="https://cagoooo.github.io/penguin/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Penguin Antarctic Adventure 遊戲封面" />
     <meta property="og:url" content="https://cagoooo.github.io/penguin/" />
     <meta property="og:type" content="website" />
     <meta property="og:locale" content="zh_TW" />
+    <meta property="og:site_name" content="南極大冒險" />
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="南極大冒險 · 企鵝跑酷" />
     <meta name="twitter:description" content="Konami 1983 經典遊戲重製版" />
+    <meta name="twitter:image" content="https://cagoooo.github.io/penguin/og-image.png" />
 
-    <!-- Favicon (inline penguin emoji SVG) -->
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%90%A7%3C/text%3E%3C/svg%3E" />
+    <!-- Favicons (relative paths so it works at any base URL) -->
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="icon-512.png" />
   </head>
   <body style="background:#000;margin:0">
     <div id="root"></div>
