@@ -56,6 +56,7 @@ function drawSingleObstacle(ctx: CanvasRenderingContext2D, obs: Obstacle): void 
     case 'FLAG':
     case 'BLUE_FLAG':
     case 'RAINBOW_FLAG': drawFlag(ctx, obs); break;
+    case 'WARP_FLAG':   drawWarpFlag(ctx); break;
     case 'SHOP_STATION': drawShopStation(ctx); break;
     case 'ICE_PATCH':   drawIcePatch(ctx); break;
     case 'SNOWDRIFT':   drawSnowdrift(ctx); break;
@@ -345,6 +346,43 @@ function drawFlag(ctx: CanvasRenderingContext2D, obs: Obstacle): void {
   ctx.lineTo(30, -45);
   ctx.lineTo(0, -30);
   ctx.fill();
+}
+
+function drawWarpFlag(ctx: CanvasRenderingContext2D): void {
+  // Animated rainbow vortex on a tall pole — clearly different from regular flags
+  const t = Date.now() * 0.005;
+
+  // Pole
+  ctx.fillStyle = '#FFD700';
+  ctx.fillRect(-3, -90, 6, 90);
+
+  // Spiraling rainbow ring
+  const rings = ['#FF1493', '#FF7F00', '#FFFF00', '#00FF7F', '#1E90FF', '#9400D3'];
+  for (let i = 0; i < 6; i++) {
+    const angle = t + i * (Math.PI / 3);
+    const r = 30 - i * 3;
+    ctx.fillStyle = rings[i];
+    ctx.beginPath();
+    ctx.arc(Math.cos(angle) * 8, -55 + Math.sin(angle) * 8, r, 0, Math.PI * 2);
+    ctx.globalAlpha = 0.6;
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // Bright center
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(0, -55, 8, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Sparkles
+  ctx.fillStyle = '#fde047';
+  for (let i = 0; i < 4; i++) {
+    const a = t * 1.5 + i * (Math.PI / 2);
+    ctx.beginPath();
+    ctx.arc(Math.cos(a) * 35, -55 + Math.sin(a) * 35, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 function drawShopStation(ctx: CanvasRenderingContext2D): void {

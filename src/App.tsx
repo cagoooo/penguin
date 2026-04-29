@@ -6,19 +6,23 @@ import { ALL_SHOP_ITEMS as SHOP_DATA, getShopItem, type ShopItemMeta } from './s
 import { initAudio, playTone, sounds, mutedRef, pausedRef } from './audio/sounds';
 import { startBGM, stopBGM } from './audio/bgm';
 import { useAchievements } from './achievements/useAchievements';
-import { generateShareImage, shareScore } from './utils/shareImage';
-import { SKINS, getSkin, isSkinUnlocked, loadSkin, saveSkin, type SkinId } from './skins/skins';
+// shareImage is ~250 lines of canvas drawing — only needed when the player
+// hits the 📷 share button. Dynamic import keeps it out of the main chunk.
+import { getSkin, loadSkin, saveSkin, type SkinId } from './skins/skins';
 import { comboMultiplier, getComboTier, justEnteredNewTier, type ComboTier } from './game/combo';
 import { getDailyChallenge, loadDailyRecord, recordDailyAttempt } from './game/dailyChallenge';
 import { drawEnvironment } from './render/drawEnvironment';
 import { drawObstacles } from './render/drawObstacles';
 import { drawPenguin } from './render/drawPenguin';
-import { drawBlizzard } from './render/drawBlizzard';
+import { drawWeather } from './render/drawWeather';
 
 // Firebase lives in its own ~85KB gzip chunk; only loaded when the player opens
 // the leaderboard or hits GAME_OVER (where the submit form appears).
 const LeaderboardModal = lazy(() => import('./leaderboard/LeaderboardModal'));
 const ScoreSubmitForm = lazy(() => import('./leaderboard/ScoreSubmitForm'));
+// Other modals — loaded on-demand to keep the initial bundle slim.
+const AchievementsModal = lazy(() => import('./achievements/AchievementsModal'));
+const SkinPickerModal = lazy(() => import('./skins/SkinPickerModal'));
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -165,7 +169,9 @@ export default function App() {
     if (shareState === 'generating') return;
     setShareState('generating');
     try {
-      const blob = await generateShareImage({
+      // Dynamic import — pulls shareImage chunk on first use only
+      const mod = await import('./utils/shareImage');
+      const blob = await mod.generateShareImage({
         score,
         level,
         name: playerName.trim() || undefined,
@@ -174,7 +180,7 @@ export default function App() {
         achievementsCount: achievementsUnlocked.size,
         achievementsTotal: allAchievements.length,
       });
-      const result = await shareScore(blob, { score, level });
+      const result = await mod.shareScore(blob, { score, level });
       setShareState(result);
       setTimeout(() => setShareState('idle'), 3000);
     } catch (err) {
@@ -388,10 +394,17 @@ export default function App() {
     isGodMode: false,
     pendingShopItems: [] as string[],
     // L13+: blizzard storm — periodic visibility-reduction events
-    blizzardActive: 0,    // seconds remaining; 0 = inactive
-    blizzardStrength: 0,  // 0..1 fade-in/out (avoids snap)
-    nextBlizzardAt: 0,    // distance threshold for next blizzard onset
+    // Weather system (BLIZZARD L13+, WIND L15+, NIGHT L17+, FOG L19+)
+    weatherType: 'CLEAR' as 'CLEAR' | 'BLIZZARD' | 'WIND' | 'NIGHT' | 'FOG',
+    weatherActive: 0,    // seconds remaining; 0 = inactive
+    weatherStrength: 0,  // 0..1 fade-in/out (avoids snap)
+    nextWeatherAt: 0,    // distance threshold for next event onset
     snowflakes: [] as { x: number; y: number; speed: number; size: number; sway: number }[],
+    windPhase: 0,        // sin-wave time for WIND lateral push animation
+    // Hidden bonus room (Phase 14-6): triggered by WARP_FLAG, lasts 8 seconds.
+    // While active: time frozen, all spawns are gold fish, player invincible.
+    bonusRoomTime: 0,
+    bonusRoomFlash: 0,   // flash effect on entry (0..1 fading)
   });
 
   const auroraBorealis = useRef(Array.from({ length: 5 }).map((_, i) => ({
@@ -533,10 +546,14 @@ export default function App() {
     g.fireTime = 0;
     g.traction = 1.0;
     // Reset blizzard state per level
-    g.blizzardActive = 0;
-    g.blizzardStrength = 0;
-    g.nextBlizzardAt = g.distance - 800; // First storm hits ~800m into level 13+
+    g.weatherType = 'CLEAR';
+    g.weatherActive = 0;
+    g.weatherStrength = 0;
+    g.nextWeatherAt = g.distance - 800; // First weather event hits ~800m in
     g.snowflakes = [];
+    g.windPhase = 0;
+    g.bonusRoomTime = 0;
+    g.bonusRoomFlash = 0;
 
     setTime(g.time);
     setDistance(g.levelDistance);
@@ -793,8 +810,16 @@ export default function App() {
 
       // Time decreases slowly
       const prevTime = g.time;
+      // Bonus room countdown + time freeze
+      if (g.bonusRoomTime > 0) {
+        g.bonusRoomTime -= 1/60;
+        if (g.bonusRoomFlash > 0) g.bonusRoomFlash -= 0.02;
+      }
+
       if (g.timeFrozen > 0) {
         g.timeFrozen -= 1/60;
+      } else if (g.bonusRoomTime > 0) {
+        // Time freezes during the bonus room
       } else {
         g.time -= 1/60;
         setTime(Math.max(0, g.time));
@@ -861,35 +886,57 @@ export default function App() {
 
       // Blizzard event (L13+): randomly triggered storm reducing visibility for ~5 seconds.
       // Strength fades in/out smoothly so the world doesn't snap white.
-      // BLIZZARD_FRENZY daily theme drops the level threshold to 1
-      const blizzardThresholdLevel = (dailyModeRef.current && getDailyChallenge().blizzardRate >= 5) ? 1 : 13;
-      if (g.level >= blizzardThresholdLevel) {
-        if (g.blizzardActive > 0) {
-          g.blizzardActive -= 1 / 60;
-          // Ramp strength toward 1 while active, toward 0 once expired
-          g.blizzardStrength += (1 - g.blizzardStrength) * 0.04;
-          if (g.blizzardActive <= 0) {
-            g.blizzardActive = 0;
-            // Schedule next storm 800-1500m further along
-            g.nextBlizzardAt = g.distance - (800 + Math.random() * 700);
+      // Weather system: pick a random eligible weather based on level + daily theme.
+      // Each event lasts 4-7s with smooth fade-in/out. Only one type at a time.
+      const blizzardForceFromDaily = dailyModeRef.current && getDailyChallenge().blizzardRate >= 5;
+      const eligibleWeather: typeof g.weatherType[] = [];
+      if (g.level >= 13 || blizzardForceFromDaily) eligibleWeather.push('BLIZZARD');
+      if (g.level >= 15) eligibleWeather.push('WIND');
+      if (g.level >= 17) eligibleWeather.push('NIGHT');
+      if (g.level >= 19) eligibleWeather.push('FOG');
+
+      if (eligibleWeather.length > 0) {
+        if (g.weatherActive > 0) {
+          g.weatherActive -= 1 / 60;
+          if (g.weatherType === 'WIND') g.windPhase += 0.06;
+          if (g.weatherActive <= 0) {
+            g.weatherActive = 0;
+            g.nextWeatherAt = g.distance - (800 + Math.random() * 700);
           }
-        } else if (g.distance < g.nextBlizzardAt) {
-          // Trigger a new storm
-          g.blizzardActive = 4 + Math.random() * 3; // 4-7 seconds
-          // Spawn a fresh field of snowflakes
-          g.snowflakes = Array.from({ length: 80 }, () => ({
-            x: Math.random() * CANVAS_WIDTH,
-            y: Math.random() * CANVAS_HEIGHT,
-            speed: 2 + Math.random() * 5,
-            size: 1 + Math.random() * 3,
-            sway: Math.random() * Math.PI * 2,
-          }));
+        } else if (g.distance < g.nextWeatherAt) {
+          // Trigger a fresh event — pick from eligible types
+          const pick = blizzardForceFromDaily
+            ? 'BLIZZARD'
+            : eligibleWeather[Math.floor(Math.random() * eligibleWeather.length)];
+          g.weatherType = pick;
+          g.weatherActive = 4 + Math.random() * 3;
+
+          // BLIZZARD needs snowflake particles
+          if (pick === 'BLIZZARD') {
+            g.snowflakes = Array.from({ length: 80 }, () => ({
+              x: Math.random() * CANVAS_WIDTH,
+              y: Math.random() * CANVAS_HEIGHT,
+              speed: 2 + Math.random() * 5,
+              size: 1 + Math.random() * 3,
+              sway: Math.random() * Math.PI * 2,
+            }));
+          }
         }
-        // Always fade strength toward target (active=1, inactive=0)
-        const target = g.blizzardActive > 0 ? 1 : 0;
-        g.blizzardStrength += (target - g.blizzardStrength) * 0.04;
+        // Smooth fade
+        const target = g.weatherActive > 0 ? 1 : 0;
+        g.weatherStrength += (target - g.weatherStrength) * 0.04;
+        if (g.weatherStrength < 0.01 && g.weatherActive <= 0) {
+          g.weatherType = 'CLEAR';
+        }
       } else {
-        g.blizzardStrength = 0;
+        g.weatherStrength = 0;
+        g.weatherType = 'CLEAR';
+      }
+
+      // WIND: gently push the player sideways (gameplay effect, not just visual)
+      if (g.weatherType === 'WIND' && g.weatherStrength > 0.5) {
+        const windForce = Math.sin(g.windPhase) * 0.4 * g.weatherStrength;
+        p.x += windForce;
       }
 
       // 2.5 Update Environment (Curves & Sea)
@@ -1072,11 +1119,27 @@ export default function App() {
         let type: Obstacle['type'];
         let color: string | undefined;
 
+        // BONUS_ROOM: every spawn is a gold fish — short fish frenzy
+        if (g.bonusRoomTime > 0) {
+          obstaclesRef.current.push({
+            id: Date.now() + Math.random(),
+            z: spawnZ,
+            lane: Math.floor(Math.random() * 3) - 1,
+            type: 'FISH',
+            color: '#FFD700',
+          });
+          g.lastObstacleZ = spawnZ;
+        } else {
+        // (Normal-mode spawn logic continues below)
+
         // Detector increases fish spawn rates
         const fishThreshold = g.hasDetector ? 0.7 : 0.85;
         const jumpingFishThreshold = g.hasDetector ? 0.6 : 0.75;
 
-        if (typeRoll > 0.99) {
+        if (typeRoll > 0.997 && g.level >= 5 && g.bonusRoomTime <= 0) {
+          // 0.3% chance per spawn; only L5+ and not already in a bonus room
+          type = 'WARP_FLAG';
+        } else if (typeRoll > 0.99) {
           type = 'RAINBOW_FLAG';
         } else if (typeRoll > 0.92) {
           type = 'BLUE_FLAG';
@@ -1151,11 +1214,18 @@ export default function App() {
         }
         obstaclesRef.current.push(newObs);
         g.lastObstacleZ = spawnZ;
+        } // end else (normal-mode spawn)
       }
       g.lastObstacleZ -= currentSpeed;
 
       // 5. Collision Detection
+      // BONUS_ROOM: any obstacle in collision range simply gets collected as gold fish
+      const bonusInvincible = g.bonusRoomTime > 0;
       obstaclesRef.current.forEach(obs => {
+        if (bonusInvincible && obs.type !== 'FISH' && obs.type !== 'JUMPING_FISH') {
+          // Pretend it's collected so it doesn't draw or hurt
+          obs.collected = true;
+        }
         if (obs.z < 150 && obs.z > 50) {
           // 5.1 Check for Item Collection (Fish, Flags)
           if (!obs.collected) {
@@ -1166,10 +1236,10 @@ export default function App() {
             const dist = Math.abs(p.x - obsX);
 
             // Magnet increases collection range
-            const collectionRange = (g.hasMagnet && (obs.type === 'FISH' || obs.type === 'FLAG' || obs.type === 'BLUE_FLAG' || obs.type === 'JUMPING_FISH' || obs.type === 'RAINBOW_FLAG')) ? 400 : 60;
+            const collectionRange = (g.hasMagnet && (obs.type === 'FISH' || obs.type === 'FLAG' || obs.type === 'BLUE_FLAG' || obs.type === 'JUMPING_FISH' || obs.type === 'RAINBOW_FLAG' || obs.type === 'WARP_FLAG')) ? 400 : 60;
 
             if (dist < collectionRange || (obs.type === 'SHOP_STATION' && dist < 120)) {
-              if (obs.type === 'FISH' || obs.type === 'FLAG' || obs.type === 'BLUE_FLAG' || obs.type === 'JUMPING_FISH' || obs.type === 'RAINBOW_FLAG' || obs.type === 'SHOP_STATION') {
+              if (obs.type === 'FISH' || obs.type === 'FLAG' || obs.type === 'BLUE_FLAG' || obs.type === 'JUMPING_FISH' || obs.type === 'RAINBOW_FLAG' || obs.type === 'SHOP_STATION' || obs.type === 'WARP_FLAG') {
                 const itemY = (obs.type === 'JUMPING_FISH') ? (obs.fishY || 0) : 0;
                 // Items should only be collectible if the penguin's height roughly matches the item's height
                 // Significant tolerance for the shop station to allow entry while flying
@@ -1192,6 +1262,14 @@ export default function App() {
                     g.score += 5000;
                     setTime(g.time);
                     sounds.powerup();
+                  } else if (obs.type === 'WARP_FLAG') {
+                    // Hidden bonus room: 8 seconds of gold-fish frenzy
+                    g.bonusRoomTime = 8;
+                    g.bonusRoomFlash = 1;
+                    g.score += 5000;
+                    sounds.powerup();
+                    confetti({ particleCount: 200, spread: 120, origin: { y: 0.5 } });
+                    unlockAchievement('warp-master');
                   } else {
                     let points = 0;
                     let isComboItem = false; // FISH and FLAG count toward combo
@@ -1431,8 +1509,8 @@ export default function App() {
       }, skinRef.current);
 
 
-      // Blizzard overlay (drawn LAST so it covers everything) — see src/render/drawBlizzard.ts
-      drawBlizzard(ctx, g);
+      // Weather overlay (BLIZZARD/WIND/NIGHT/FOG) — drawn LAST. See src/render/drawWeather.ts
+      drawWeather(ctx, g);
     };
 
     update();
@@ -2377,130 +2455,29 @@ export default function App() {
     </Suspense>
   )}
 
-  {/* Achievements Modal */}
-  <AnimatePresence>
-    {showAchievements && (
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={() => setShowAchievements(false)}
-        className="fixed inset-0 z-[1100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
-      >
-        <motion.div
-          initial={{ scale: 0.9, y: 20 }}
-          animate={{ scale: 1, y: 0 }}
-          exit={{ scale: 0.95, y: 10 }}
-          onClick={e => e.stopPropagation()}
-          className="bg-gradient-to-b from-[#1a1a3a] to-[#0a0a1a] border-2 border-blue-500/40 rounded-2xl max-w-2xl w-full max-h-[80vh] overflow-y-auto p-6"
-        >
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-black tracking-tight flex items-center gap-2">
-              <Trophy className="text-yellow-400" /> 成就 ({achievementsUnlocked.size}/{allAchievements.length})
-            </h2>
-            <button
-              onClick={() => setShowAchievements(false)}
-              className="px-4 py-1 bg-white/10 hover:bg-white/20 rounded-full text-sm transition-all"
-            >
-              關閉
-            </button>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {allAchievements.map(a => {
-              const isUnlocked = achievementsUnlocked.has(a.id);
-              const hideContent = !!a.secret && !isUnlocked;
-              return (
-                <div
-                  key={a.id}
-                  className={`p-3 rounded-xl border-2 transition-all ${
-                    isUnlocked
-                      ? 'border-yellow-400/50 bg-yellow-500/10'
-                      : 'border-white/10 bg-white/5 opacity-50'
-                  }`}
-                >
-                  <div className={`text-3xl mb-1 ${isUnlocked ? '' : 'grayscale'}`}>
-                    {hideContent ? '❓' : a.icon}
-                  </div>
-                  <p className="font-bold text-sm">{hideContent ? '???' : a.title}</p>
-                  <p className="text-xs opacity-70">{hideContent ? '???' : a.description}</p>
-                  {!isUnlocked && <p className="text-[10px] mt-1 opacity-50">🔒 未解鎖</p>}
-                </div>
-              );
-            })}
-          </div>
-        </motion.div>
-      </motion.div>
-    )}
-  </AnimatePresence>
+  {/* Achievements Modal (lazy-loaded) */}
+  {showAchievements && (
+    <Suspense fallback={null}>
+      <AchievementsModal
+        unlocked={achievementsUnlocked}
+        all={allAchievements}
+        onClose={() => setShowAchievements(false)}
+      />
+    </Suspense>
+  )}
 
-  {/* Skin Picker Modal */}
-  <AnimatePresence>
-    {showSkinPicker && (
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={() => setShowSkinPicker(false)}
-        className="fixed inset-0 z-[1100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
-      >
-        <motion.div
-          initial={{ scale: 0.9, y: 20 }}
-          animate={{ scale: 1, y: 0 }}
-          exit={{ scale: 0.95, y: 10 }}
-          onClick={e => e.stopPropagation()}
-          className="bg-gradient-to-b from-[#1a1a3a] to-[#0a0a1a] border-2 border-purple-400/40 rounded-2xl max-w-lg w-full max-h-[80vh] overflow-y-auto p-6"
-        >
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-black tracking-tight flex items-center gap-2">
-              <span>🎨</span> 換造型
-            </h2>
-            <button
-              onClick={() => setShowSkinPicker(false)}
-              className="px-4 py-1 bg-white/10 hover:bg-white/20 rounded-full text-sm transition-all"
-            >
-              關閉
-            </button>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {SKINS.map(skin => {
-              const unlocked = isSkinUnlocked(skin, achievementsUnlocked, allAchievements.length);
-              const selected = currentSkin === skin.id;
-              return (
-                <button
-                  key={skin.id}
-                  onClick={() => unlocked && setCurrentSkin(skin.id)}
-                  disabled={!unlocked}
-                  className={`p-3 rounded-xl border-2 transition-all text-center ${
-                    selected
-                      ? 'border-purple-400 bg-purple-500/20 shadow-[0_0_15px_rgba(168,85,247,0.4)]'
-                      : unlocked
-                      ? 'border-white/20 bg-white/5 hover:border-purple-400/50 cursor-pointer'
-                      : 'border-white/10 bg-white/5 opacity-40 cursor-not-allowed'
-                  }`}
-                >
-                  <div className="text-4xl mb-1">{skin.emoji}</div>
-                  <p className="font-bold text-sm">{skin.name}</p>
-                  <p className="text-xs opacity-70 mt-0.5">{skin.description}</p>
-                  {!unlocked && (
-                    <p className="text-[10px] mt-2 opacity-60">🔒 {
-                      skin.id === 'golden' ? '解開所有成就' :
-                      skin.unlockAchievement === 'level-5' ? '解開冰原行者' :
-                      skin.unlockAchievement === 'level-10' ? '解開極地勇者' :
-                      '神秘解鎖條件'
-                    }</p>
-                  )}
-                  {selected && (
-                    <p className="text-[10px] mt-2 text-purple-300 font-bold">✓ 使用中</p>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          <p className="text-[10px] text-white/40 text-center mt-4">造型只是視覺，不影響玩法</p>
-        </motion.div>
-      </motion.div>
-    )}
-  </AnimatePresence>
+  {/* Skin Picker Modal (lazy-loaded) */}
+  {showSkinPicker && (
+    <Suspense fallback={null}>
+      <SkinPickerModal
+        current={currentSkin}
+        onSelect={(id) => { setCurrentSkin(id); setShowSkinPicker(false); }}
+        unlockedAchievements={achievementsUnlocked}
+        totalAchievements={allAchievements.length}
+        onClose={() => setShowSkinPicker(false)}
+      />
+    </Suspense>
+  )}
 
   {/* Author Footer */}
   {!isFullscreen && (

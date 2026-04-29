@@ -19,7 +19,7 @@
 | **Phase 6** 遊戲擴充 | ✅ 25% | 北極熊 L9+／冰山 L11+／暴風雪 L13+／皮膚（4/8 項完成） |
 | **🎨 品牌素材** | ✅ 100% | 中文 1200×630 OG 圖、1200×1200 LINE inline、品牌化 favicon |
 | **🤫 秘技保密** | ✅ 100% | God Mode 成就藏起來，UI 顯示 ??? |
-| **Phase 14（部分）** 進階改良 | ✅ | 滑動手勢 + 連擊系統 + **App.tsx 第二階段拆分**（render/ 五大模組） |
+| **Phase 14（部分）** 進階改良 | ✅ | 滑動手勢 + 連擊系統 + App.tsx 拆分 + **多層 Lazy + 天氣擴充 + 隱藏房間** |
 | **Phase 6-3** 每日挑戰 | ✅ | 7 種主題輪替 + localStorage 紀錄 + UI banner |
 | **5-2** Canvas 自適應 | ✅ | 桌機 4K 撐滿、手機保比例、無 max-w 固定卡點 |
 | **5-7** Lighthouse CI | ✅ | 每次部署後 + 每日自動跑 perf/a11y/SEO/PWA 評分 |
@@ -30,12 +30,13 @@
 - 🧪 測試：22 個單元測試，全綠（shop / constants / achievements / skins）
 - 🔍 CI：typecheck + lint + test + build 四道關卡
 - 🌐 線上：HTTP 200 OK，PWA 可離線玩
-- 🐧 障礙：8 種（HOLE/SEAL/CRACK/SNOWDRIFT/ICE_PATCH/POLAR_BEAR/ICEBERG + BLIZZARD 環境事件）
+- 🐧 障礙：**9** 種（含 WARP_FLAG 隱藏門）+ **4** 種環境事件（BLIZZARD/WIND/NIGHT/FOG）
 - 🛒 道具：16 種補給站道具
-- 🏆 成就：**11** 個（含 1 個秘密成就 + 連擊大師）
-- 🎨 皮膚：5 款（含 1 款全成就解鎖款）
+- 🏆 成就：**12** 個（含 2 個秘密成就 + 連擊大師 + 時空旅人）
+- 🎨 皮膚：5 款
 - 🔥 連擊：6 階倍率（×1 → ×15）
 - 📅 每日挑戰：7 種主題輪替
+- 📦 Lazy chunks：**4** 個（Firebase / Modals / shareImage / motion）
 
 ---
 

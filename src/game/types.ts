@@ -4,7 +4,8 @@ export type ObstacleType =
   | 'CRACK' | 'SEAL' | 'HOLE'
   | 'FISH' | 'FLAG' | 'BLUE_FLAG' | 'JUMPING_FISH' | 'RAINBOW_FLAG'
   | 'SHOP_STATION' | 'ICE_PATCH' | 'SNOWDRIFT'
-  | 'POLAR_BEAR' | 'ICEBERG';
+  | 'POLAR_BEAR' | 'ICEBERG'
+  | 'WARP_FLAG'; // 0.5%-chance hidden bonus-room portal (L5+)
 
 export interface Obstacle {
   id: number;
