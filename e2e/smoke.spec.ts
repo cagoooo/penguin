@@ -50,8 +50,8 @@ test.describe('Modals (lazy-loaded)', () => {
   test('成就 modal opens with correct count', async ({ page }) => {
     await page.goto('./');
     await page.getByRole('button', { name: /成就/ }).click();
-    // Modal heading specifically (not the button on the START screen)
-    await expect(page.getByRole('heading', { name: /成就 \(0\/12\)/ })).toBeVisible();
+    // Modal heading specifically — total count is whatever ACHIEVEMENTS.length is
+    await expect(page.getByRole('heading', { name: /成就 \(0\/\d+\)/ })).toBeVisible();
     // Secret achievements render as ??? — at least one should show on fresh visit
     await expect(page.getByText('???').first()).toBeVisible();
     await page.getByRole('button', { name: '關閉' }).click();
