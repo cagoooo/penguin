@@ -29,12 +29,12 @@ describe('skins', () => {
     const partial = new Set<AchievementId>(['level-5', 'level-10', 'god-mode']);
     expect(isSkinUnlocked(golden, partial, 10)).toBe(false);
 
-    const allTwelve = new Set<AchievementId>([
+    const allThirteen = new Set<AchievementId>([
       'first-clear', 'level-5', 'level-10', 'score-100k', 'score-1m',
       'god-mode', 'shop-spree', 'fish-feast', 'survivor', 'speedster',
-      'combo-master', 'warp-master',
+      'combo-master', 'warp-master', 'king-slayer',
     ]);
-    expect(isSkinUnlocked(golden, allTwelve, 12)).toBe(true);
+    expect(isSkinUnlocked(golden, allThirteen, 13)).toBe(true);
   });
 
   it('all skins have unique ids', () => {

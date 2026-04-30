@@ -4,7 +4,7 @@ import { Trophy, Timer, MapPin, Play, RotateCcw, ChevronRight, ChevronLeft, Arro
 import confetti from 'canvas-confetti';
 import { ALL_SHOP_ITEMS as SHOP_DATA, getShopItem, type ShopItemMeta } from './shop/items';
 import { initAudio, playTone, sounds, mutedRef, pausedRef } from './audio/sounds';
-import { startBGM, stopBGM } from './audio/bgm';
+import { startBGM, stopBGM, loadBgmTrack, type BgmTrackId } from './audio/bgm';
 import { useAchievements } from './achievements/useAchievements';
 // shareImage is ~250 lines of canvas drawing — only needed when the player
 // hits the 📷 share button. Dynamic import keeps it out of the main chunk.
@@ -30,6 +30,8 @@ const UpdatePrompt = lazy(() => import('./components/UpdatePrompt'));
 const OnboardingHints = lazy(() => import('./components/OnboardingHints'));
 // PWA install prompt — appears after first GAME_OVER / LEVEL_CLEAR.
 const InstallPrompt = lazy(() => import('./components/InstallPrompt'));
+// BGM track picker — small dropdown on START screen.
+const BgmPicker = lazy(() => import('./components/BgmPicker'));
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -154,6 +156,33 @@ export default function App() {
   const skinRef = useRef<SkinId>(currentSkin);
   useEffect(() => { skinRef.current = currentSkin; saveSkin(currentSkin); }, [currentSkin]);
 
+  // 16-6 BGM track selection
+  const [bgmTrack, setBgmTrack] = useState<BgmTrackId>(loadBgmTrack);
+
+  // 16-10 URL deep links: read once on mount
+  // Supported: ?screen=leaderboard|achievements|skins · ?skin=red-scarf|sunglasses|crown|golden
+  // After consuming params we strip them from the URL so a refresh doesn't re-trigger.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const screen = params.get('screen');
+    const skin = params.get('skin');
+
+    if (screen === 'leaderboard') setShowLeaderboard(true);
+    else if (screen === 'achievements') setShowAchievements(true);
+    else if (screen === 'skins') setShowSkinPicker(true);
+
+    if (skin && (['default', 'red-scarf', 'sunglasses', 'crown', 'golden'] as const).includes(skin as SkinId)) {
+      setCurrentSkin(skin as SkinId);
+    }
+
+    if (screen || skin) {
+      // Clean URL so future shares of "the URL the player saw" don't re-trigger
+      const clean = window.location.pathname + window.location.hash;
+      window.history.replaceState(null, '', clean);
+    }
+  }, []);
+
   // Phase 5+: combo system
   const [comboCount, setComboCount] = useState(0);
   const [comboFlash, setComboFlash] = useState<ComboTier | null>(null);
@@ -232,6 +261,7 @@ export default function App() {
       if (level >= 5) unlockAchievement('level-5');
       if (level >= 10) unlockAchievement('level-10');
       if (level >= 7) unlockAchievement('survivor');
+      if (level >= 20) unlockAchievement('king-slayer');
     }
   }, [gameState, level, unlockAchievement]);
 
@@ -1251,7 +1281,24 @@ export default function App() {
         const fishThreshold = g.hasDetector ? 0.7 : 0.85;
         const jumpingFishThreshold = g.hasDetector ? 0.6 : 0.75;
 
-        if (typeRoll > 0.997 && g.level >= 5 && g.bonusRoomTime <= 0) {
+        // L20 BOSS: ~25% of all spawns are snowballs from the Penguin King.
+        // Use a flag rather than early return so the rest of the spawn logic stays linear.
+        let bossSnowballSpawned = false;
+        if (g.level >= 20 && Math.random() < 0.25) {
+          obstaclesRef.current.push({
+            id: Date.now() + Math.random(),
+            z: spawnZ,
+            lane: Math.floor(Math.random() * 3) - 1,
+            type: 'SNOWBALL',
+          });
+          g.lastObstacleZ = spawnZ;
+          bossSnowballSpawned = true;
+        }
+
+        if (bossSnowballSpawned) {
+          // already pushed; skip the rest of the type-roll chain
+          type = 'HOLE'; // placeholder — won't be used
+        } else if (typeRoll > 0.997 && g.level >= 5 && g.bonusRoomTime <= 0) {
           // 0.3% chance per spawn; only L5+ and not already in a bonus room
           type = 'WARP_FLAG';
         } else if (typeRoll > 0.99) {
@@ -1316,19 +1363,21 @@ export default function App() {
           type = 'HOLE';
         }
 
-        const newObs: Obstacle = {
-          id: Date.now() + Math.random(),
-          z: spawnZ,
-          lane: Math.floor(Math.random() * 3) - 1,
-          type,
-          color,
-        };
-        if (type === 'POLAR_BEAR') {
-          newObs.laneOffset = 0;
-          newObs.walkPhase = 0;
+        if (!bossSnowballSpawned) {
+          const newObs: Obstacle = {
+            id: Date.now() + Math.random(),
+            z: spawnZ,
+            lane: Math.floor(Math.random() * 3) - 1,
+            type,
+            color,
+          };
+          if (type === 'POLAR_BEAR') {
+            newObs.laneOffset = 0;
+            newObs.walkPhase = 0;
+          }
+          obstaclesRef.current.push(newObs);
+          g.lastObstacleZ = spawnZ;
         }
-        obstaclesRef.current.push(newObs);
-        g.lastObstacleZ = spawnZ;
         } // end else (normal-mode spawn)
       }
       g.lastObstacleZ -= currentSpeed;
@@ -1531,7 +1580,7 @@ export default function App() {
           }
 
           if (holeDist < 60) {
-            if (obs.type === 'HOLE' || obs.type === 'CRACK' || obs.type === 'SEAL' || obs.type === 'JUMPING_FISH' || obs.type === 'SNOWDRIFT' || obs.type === 'ICE_PATCH') {
+            if (obs.type === 'HOLE' || obs.type === 'CRACK' || obs.type === 'SEAL' || obs.type === 'JUMPING_FISH' || obs.type === 'SNOWDRIFT' || obs.type === 'ICE_PATCH' || obs.type === 'SNOWBALL') {
               const isJumpingOver = p.y < -30;
               
               // If Penguin is on Fire/Nitro/Shielded or in God Mode, skip collision
@@ -2350,6 +2399,10 @@ export default function App() {
                     換造型
                   </button>
 
+                  <Suspense fallback={null}>
+                    <BgmPicker current={bgmTrack} onChange={setBgmTrack} />
+                  </Suspense>
+
                   {!isFullscreen && isPortrait && (
                     <button
                       onClick={() => { initAudio(); toggleFullscreen(); }}
@@ -2461,8 +2514,12 @@ export default function App() {
               animate={{ opacity: 1 }}
               className="absolute inset-0 bg-green-900/80 backdrop-blur-md flex flex-col items-center justify-center text-center"
             >
-              <h2 className="text-7xl font-black mb-4 tracking-tighter">抵達終點！</h2>
-              <p className="text-2xl mb-8 opacity-80">歡迎來到石門國小！</p>
+              <h2 className="text-5xl sm:text-7xl font-black mb-4 tracking-tighter">
+                {level >= 20 ? '⚔️ 擊敗企鵝王！' : '抵達終點！'}
+              </h2>
+              <p className="text-xl sm:text-2xl mb-8 opacity-80">
+                {level >= 20 ? '👑 你成了新一代南極之王！' : '歡迎來到石門國小！'}
+              </p>
               <div className="flex gap-4 mb-12">
                 <div className="bg-black/20 p-6 rounded-2xl">
                   <p className="text-sm uppercase opacity-60 mb-1">得分</p>

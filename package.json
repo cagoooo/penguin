@@ -14,10 +14,14 @@
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
     "test:watch": "vitest",
-    "e2e": "playwright test",
+    "e2e": "playwright test --grep-invert visual",
     "e2e:ui": "playwright test --ui",
     "e2e:install": "playwright install --with-deps chromium",
-    "generate-og": "node scripts/generate-og-image.mjs"
+    "e2e:visual": "playwright test e2e/visual.spec.ts --project=chromium",
+    "e2e:visual:update": "playwright test e2e/visual.spec.ts --project=chromium --update-snapshots",
+    "generate-og": "node scripts/generate-og-image.mjs",
+    "storybook": "storybook dev -p 6006",
+    "storybook:build": "storybook build"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",
@@ -35,6 +39,7 @@
     "@eslint/js": "^10.0.1",
     "@napi-rs/canvas": "^0.1.100",
     "@playwright/test": "^1.59.1",
+    "@storybook/react-vite": "^10.3.6",
     "@types/node": "^22.14.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

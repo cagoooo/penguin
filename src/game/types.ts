@@ -5,7 +5,8 @@ export type ObstacleType =
   | 'FISH' | 'FLAG' | 'BLUE_FLAG' | 'JUMPING_FISH' | 'RAINBOW_FLAG'
   | 'SHOP_STATION' | 'ICE_PATCH' | 'SNOWDRIFT'
   | 'POLAR_BEAR' | 'ICEBERG'
-  | 'WARP_FLAG'; // 0.5%-chance hidden bonus-room portal (L5+)
+  | 'WARP_FLAG' // 0.5%-chance hidden bonus-room portal (L5+)
+  | 'SNOWBALL'; // L20 boss-only projectile from the Penguin King
 
 export interface Obstacle {
   id: number;

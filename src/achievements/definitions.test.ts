@@ -19,8 +19,8 @@ class MemoryStorage {
 describe('achievements', () => {
   beforeEach(() => localStorage.clear());
 
-  it('has 12 unique achievements with non-empty titles', () => {
-    expect(ACHIEVEMENTS).toHaveLength(12);
+  it('has 13 unique achievements with non-empty titles', () => {
+    expect(ACHIEVEMENTS).toHaveLength(13);
     const ids = new Set(ACHIEVEMENTS.map(a => a.id));
     expect(ids.size).toBe(ACHIEVEMENTS.length);
     for (const a of ACHIEVEMENTS) {

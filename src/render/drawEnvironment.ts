@@ -44,6 +44,8 @@ export interface EnvDrawState {
   curveSegments: number[];
   segmentOffset: number;
   cumulativeOffsets: CumulativeOffset[];
+  /** Current level — used to swap the L20 goal gate for the Penguin King */
+  level?: number;
 }
 
 export function drawEnvironment(
@@ -284,6 +286,16 @@ function drawGoalGate(ctx: CanvasRenderingContext2D, s: EnvDrawState): void {
   ctx.translate(px, py);
   ctx.scale(scale, scale);
 
+  if (s.level && s.level >= 20) {
+    drawPenguinKing(ctx);
+  } else {
+    drawSchoolGate(ctx);
+  }
+
+  ctx.restore();
+}
+
+function drawSchoolGate(ctx: CanvasRenderingContext2D): void {
   ctx.fillStyle = '#8B4513';
   ctx.fillRect(-250, -300, 60, 300);
   ctx.fillRect(190, -300, 60, 300);
@@ -301,6 +313,137 @@ function drawGoalGate(ctx: CanvasRenderingContext2D, s: EnvDrawState): void {
   ctx.font = 'bold 30px sans-serif';
   ctx.textAlign = 'center';
   ctx.fillText('石門國小', 0, -240);
+}
 
-  ctx.restore();
+function drawPenguinKing(ctx: CanvasRenderingContext2D): void {
+  // Throne base
+  ctx.fillStyle = '#7c2d12';
+  ctx.fillRect(-180, -120, 360, 120);
+  ctx.fillStyle = '#dc2626';
+  ctx.fillRect(-180, -130, 360, 14);
+
+  // Throne back
+  ctx.fillStyle = '#7c2d12';
+  ctx.fillRect(-200, -380, 400, 50);
+  // Throne pillars
+  ctx.fillRect(-200, -380, 30, 280);
+  ctx.fillRect(170, -380, 30, 280);
+  // Decorative spires
+  ctx.fillStyle = '#fde047';
+  for (let i = 0; i < 5; i++) {
+    const x = -180 + i * 90;
+    ctx.beginPath();
+    ctx.moveTo(x, -380);
+    ctx.lineTo(x + 18, -410);
+    ctx.lineTo(x + 36, -380);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Penguin King body
+  ctx.fillStyle = '#0a0a0a';
+  ctx.beginPath();
+  ctx.ellipse(0, -160, 90, 110, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // White belly
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.ellipse(0, -150, 60, 80, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Head
+  ctx.fillStyle = '#0a0a0a';
+  ctx.beginPath();
+  ctx.ellipse(0, -270, 70, 65, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // White face patch
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.ellipse(0, -260, 45, 42, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Glowing red eyes (boss intimidation)
+  ctx.fillStyle = '#dc2626';
+  ctx.beginPath();
+  ctx.arc(-18, -275, 8, 0, Math.PI * 2);
+  ctx.arc(18, -275, 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fca5a5';
+  ctx.beginPath();
+  ctx.arc(-15, -278, 3, 0, Math.PI * 2);
+  ctx.arc(21, -278, 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Beak
+  ctx.fillStyle = '#ffae00';
+  ctx.beginPath();
+  ctx.moveTo(-18, -245);
+  ctx.lineTo(18, -245);
+  ctx.lineTo(0, -215);
+  ctx.closePath();
+  ctx.fill();
+
+  // Crown — large gold with red jewel
+  const crownY = -340;
+  ctx.fillStyle = '#fde047';
+  ctx.beginPath();
+  ctx.moveTo(-45, crownY + 25);
+  ctx.lineTo(-45, crownY);
+  ctx.lineTo(-30, crownY + 12);
+  ctx.lineTo(-18, crownY - 8);
+  ctx.lineTo(-5, crownY + 12);
+  ctx.lineTo(0, crownY - 14);
+  ctx.lineTo(5, crownY + 12);
+  ctx.lineTo(18, crownY - 8);
+  ctx.lineTo(30, crownY + 12);
+  ctx.lineTo(45, crownY);
+  ctx.lineTo(45, crownY + 25);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = '#a16207';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  // Center jewel
+  ctx.fillStyle = '#dc2626';
+  ctx.beginPath();
+  ctx.arc(0, crownY + 15, 6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#fca5a5';
+  ctx.beginPath();
+  ctx.arc(-2, crownY + 13, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Cape (red with white trim)
+  ctx.fillStyle = '#7f1d1d';
+  ctx.beginPath();
+  ctx.moveTo(-90, -240);
+  ctx.lineTo(-130, -100);
+  ctx.lineTo(130, -100);
+  ctx.lineTo(90, -240);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#fef2f2';
+  ctx.fillRect(-130, -100, 260, 6);
+
+  // Wings (raised, threatening)
+  ctx.fillStyle = '#0a0a0a';
+  ctx.beginPath();
+  ctx.ellipse(-95, -180, 22, 60, -0.4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(95, -180, 22, 60, 0.4, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Boss title banner
+  ctx.fillStyle = '#fde047';
+  ctx.fillRect(-150, -460, 300, 50);
+  ctx.strokeStyle = '#a16207';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(-150, -460, 300, 50);
+  ctx.fillStyle = '#7f1d1d';
+  ctx.font = 'bold 32px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('企 鵝 王', 0, -425);
 }

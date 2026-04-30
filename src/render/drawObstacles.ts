@@ -60,6 +60,7 @@ function drawSingleObstacle(ctx: CanvasRenderingContext2D, obs: Obstacle): void 
     case 'SHOP_STATION': drawShopStation(ctx); break;
     case 'ICE_PATCH':   drawIcePatch(ctx); break;
     case 'SNOWDRIFT':   drawSnowdrift(ctx); break;
+    case 'SNOWBALL':    drawSnowball(ctx, obs); break;
   }
 }
 
@@ -427,6 +428,52 @@ function drawIcePatch(ctx: CanvasRenderingContext2D): void {
   ctx.beginPath();
   ctx.ellipse(-20, -5, 30, 5, 0.2, 0, Math.PI);
   ctx.stroke();
+}
+
+function drawSnowball(ctx: CanvasRenderingContext2D, obs: Obstacle): void {
+  // Spinning snowball with shadow + speed lines
+  const t = Date.now() * 0.01;
+
+  // Ground shadow
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+  ctx.beginPath();
+  ctx.ellipse(0, 5, 30, 8, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Speed trail behind
+  ctx.fillStyle = 'rgba(220, 230, 245, 0.4)';
+  ctx.beginPath();
+  ctx.ellipse(-15, -20, 18, 6, -0.3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Snowball body
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(0, -25, 22, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Shadow side
+  ctx.fillStyle = 'rgba(120, 150, 200, 0.4)';
+  ctx.beginPath();
+  ctx.arc(8, -22, 14, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Detail dots that rotate (give "spin" feel)
+  ctx.fillStyle = '#cfd8e8';
+  for (let i = 0; i < 3; i++) {
+    const angle = t + i * (Math.PI * 2 / 3);
+    ctx.beginPath();
+    ctx.arc(Math.cos(angle) * 10, -25 + Math.sin(angle) * 10, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Highlight
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+  ctx.beginPath();
+  ctx.arc(-8, -32, 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  if (obs.onFire) drawFire(ctx, 0, -25, 1);
 }
 
 function drawSnowdrift(ctx: CanvasRenderingContext2D): void {

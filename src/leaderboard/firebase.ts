@@ -9,6 +9,9 @@ import {
   getFirestore,
   collection,
   addDoc,
+  doc,
+  getDoc,
+  setDoc,
   query,
   orderBy,
   limit,
@@ -93,6 +96,45 @@ export interface LeaderboardEntry {
   createdAt: Date | null;
 }
 
+/**
+ * Normalize a nickname for the unique-claim registry. Lowercased + trimmed
+ * so "Alice", "alice", "ALICE", " Alice " all collide on the same doc.
+ * Document IDs in Firestore can't contain '/' so we strip those too.
+ */
+function normalizeNickname(name: string): string {
+  return name.trim().toLowerCase().replace(/\//g, '_').slice(0, 24);
+}
+
+/**
+ * Reserve a nickname for the current user. First uid to claim a name keeps
+ * it; subsequent attempts by other uids throw a clear error.
+ *
+ * - If the doc doesn't exist → create it with our uid (first claim wins).
+ * - If it exists with our uid → no-op (we already own it).
+ * - If it exists with a different uid → throw "name taken" error.
+ */
+async function claimNickname(displayName: string, uid: string): Promise<void> {
+  const db = getDb();
+  const key = normalizeNickname(displayName);
+  if (!key) throw new Error('暱稱不能空白');
+
+  const ref = doc(db, 'nicknames', key);
+  const snap = await getDoc(ref);
+
+  if (snap.exists()) {
+    const ownerUid = (snap.data() as { uid?: unknown }).uid;
+    if (typeof ownerUid !== 'string' || ownerUid !== uid) {
+      throw new Error(`暱稱「${displayName}」已被其他玩家認領，請換一個`);
+    }
+    return; // Already mine
+  }
+
+  await setDoc(ref, {
+    uid,
+    createdAt: serverTimestamp(),
+  });
+}
+
 export async function submitScore(name: string, score: number, level: number): Promise<void> {
   const db = getDb();
   const trimmed = name.trim().slice(0, 12);
@@ -103,6 +145,9 @@ export async function submitScore(name: string, score: number, level: number): P
   // Sign in anonymously first — Firestore rules require auth.uid to match
   // the document's `uid` field. Each browser/profile gets a stable uid.
   const user = await ensureAnonymousUser();
+
+  // Claim the nickname (or verify ownership). Throws if taken by someone else.
+  await claimNickname(trimmed, user.uid);
 
   await addDoc(collection(db, 'leaderboard'), {
     name: trimmed,

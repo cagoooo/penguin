@@ -12,7 +12,8 @@ export type AchievementId =
   | 'survivor'
   | 'speedster'
   | 'combo-master'
-  | 'warp-master';
+  | 'warp-master'
+  | 'king-slayer';
 
 export interface AchievementDef {
   id: AchievementId;
@@ -37,6 +38,7 @@ export const ACHIEVEMENTS: readonly AchievementDef[] = [
   { id: 'speedster', title: '極速企鵝', description: '達到 80 km/h 以上時速', icon: '⚡' },
   { id: 'combo-master', title: '連擊大師', description: '單局達成 30 連擊', icon: '🔥' },
   { id: 'warp-master', title: '時空旅人', description: '進入隱藏房間', icon: '🌟', secret: true },
+  { id: 'king-slayer', title: '弒王者', description: '擊敗第 20 關的企鵝王', icon: '⚔️' },
 ];
 
 const STORAGE_KEY = 'penguin_achievements_v1';

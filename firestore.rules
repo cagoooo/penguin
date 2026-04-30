@@ -2,10 +2,8 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Public leaderboard for the penguin game.
-    // Reads are open to everyone; writes require an authenticated user (we use
-    // anonymous auth on the client) and the uid in the doc must match the
-    // caller's auth.uid. This prevents pure-curl spam without forcing a login.
+    // Public leaderboard.
+    // Reads open to everyone; writes require auth + uid match.
     match /leaderboard/{entryId} {
       allow read: if true;
 
@@ -13,8 +11,30 @@ service cloud.firestore {
                        request.auth != null &&
                        request.resource.data.uid == request.auth.uid;
 
-      // Entries are append-only — no updates / deletes from the client.
       allow update, delete: if false;
+    }
+
+    // Nickname registry — first uid to claim a nickname owns it forever.
+    // Doc id is the nickname itself (lowercased + trimmed by the client).
+    // Stops impersonators from posting under someone else's name.
+    match /nicknames/{name} {
+      allow read: if true;
+
+      // Create: name not yet taken; payload is just {uid, createdAt}; uid matches caller
+      allow create: if request.auth != null
+                    && request.resource.data.keys().hasOnly(['uid', 'createdAt'])
+                    && request.resource.data.uid is string
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.createdAt == request.time
+                    && name.size() >= 1
+                    && name.size() <= 24;
+
+      // Updates only allowed by the owner (so we could allow re-claim if we wanted)
+      allow update: if request.auth != null
+                    && resource.data.uid == request.auth.uid
+                    && request.resource.data.uid == request.auth.uid;
+
+      allow delete: if false;
     }
 
     // Default deny everything else
