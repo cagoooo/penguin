@@ -2374,6 +2374,7 @@ export default function App() {
                       </div>
                     </div>
                     <button
+                      data-testid="daily-toggle"
                       onClick={() => setDailyMode(m => !m)}
                       className={`shrink-0 px-3 py-2 rounded-lg text-xs font-bold transition-all ${
                         dailyMode
@@ -2401,6 +2402,7 @@ export default function App() {
                       </div>
                     </div>
                     <button
+                      data-testid="time-attack-toggle"
                       onClick={() => setTimeAttackMode(m => !m)}
                       className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                         timeAttackMode

@@ -84,9 +84,16 @@ test.describe('Daily Challenge', () => {
 
   test('daily challenge can be toggled on', async ({ page }) => {
     await page.goto('./');
-    await page.getByRole('button', { name: '啟用' }).click();
-    // Button text changes after activation
-    await expect(page.getByRole('button', { name: /已啟用/ })).toBeVisible();
+    const toggle = page.getByTestId('daily-toggle');
+    await toggle.click();
+    await expect(toggle).toContainText('已啟用');
+  });
+
+  test('time attack mode can be toggled on', async ({ page }) => {
+    await page.goto('./');
+    const toggle = page.getByTestId('time-attack-toggle');
+    await toggle.click();
+    await expect(toggle).toContainText('已啟用');
   });
 });
 
