@@ -1,44 +1,57 @@
 # 🚀 部署到 GitHub Pages + 後續優化詳細步驟
 
 > 給阿凱老師（`cagoooo`）的完整移植與改良指南。
-> 📅 **最後更新**：2026-04-30（v4 — PWA NetworkFirst + UpdatePrompt toast + Marquee 無縫循環）
+> 📅 **最後更新**：2026-04-30（**v6** — Boss / 教師後台 / 季節活動 / 8-bit 字 / size-limit / reduced-motion）
 > 🌐 **線上版**：https://cagoooo.github.io/penguin/
+> 🎓 **教師後台**：https://cagoooo.github.io/penguin/?teacher=1
 
 ---
 
-## 📊 當前完成狀態（截至 2026-04-30）
+## 📊 當前完成狀態（截至 2026-04-30 · v6）
 
 | 階段 | 完成度 | 重點 |
 |---|---|---|
-| **Phase 1** 上線 | ✅ 100% | GitHub Pages + Actions 自動部署 |
+| **Phase 1** 上線 | ✅ 100% | GitHub Pages + Actions + Lighthouse + E2E + size-limit 五道 CI |
 | **Phase 2** 玩家體驗 | ✅ 100% | 最高分／靜音／暫停／虛擬觸控／滑動手勢／Canvas 自適應 |
-| **Phase 3** 程式碼健康 | ✅ 100% | 模組化／ESLint／TS strict／**39** 單元測試 |
-| **Phase 4** 擴充功能 | ✅ 95% | PWA／成就／Firebase 排行榜（剩朋友邀請連結） |
-| **🔒 安全強化** | ✅ 100% | API key 限制 + Secret Scanning 處理 |
-| **Phase 5** 改良包 | ✅ 78% | 觸覺／截圖／**多層 Lazy**／皮膚／自適應／Lighthouse CI（7/9） |
-| **Phase 6** 遊戲擴充 | ✅ 50% | 北極熊／冰山／**4 種天氣**／皮膚／每日挑戰（5/8） |
-| **Phase 7** 多人/社群 | ✅ 20% | 截圖分享（其餘 4 項待做） |
-| **🎨 品牌素材** | ✅ 100% | 中文 1200×630 OG / 1200×1200 LINE / 品牌化 favicon |
+| **Phase 3** 程式碼健康 | ✅ 100% | 13 個模組目錄／ESLint／TS strict／**66** 單元測試／**13** E2E |
+| **Phase 4** 擴充功能 | ✅ 95% | PWA／成就／Firebase + Anonymous Auth + 暱稱綁定 |
+| **🔒 安全強化** | ✅ 100% | API key 限制 + Secret Scanning + uid 綁定防作弊 |
+| **Phase 5** 改良包 | ✅ 100% | 全部 9 項完成（含 reduced-motion / size-limit / 8-bit 字） |
+| **Phase 6** 遊戲擴充 | ✅ 88% | 6 障礙 + 4 天氣 / 19 道具 / 7 主題日 / 5 皮膚 / **Boss** / **季節活動**（剩 6-8 關卡編輯器） |
+| **Phase 7** 多人/社群 | ✅ 20% | 截圖分享（剩 4 項：對戰/邀請/Replay/班級榜） |
+| **Phase 8** A11y / i18n | ✅ 25% | reduced-motion（剩 i18n / 螢幕閱讀器 / 色盲模式 / 難度等級） |
+| **🎨 品牌素材** | ✅ 100% | 中文 OG 圖 + favicon + Apple Touch + 12 favicons |
 | **🤫 秘技保密** | ✅ 100% | God Mode + 時空旅人成就藏起來 |
-| **Phase 14** 進階改良 | ✅ 60% | App.tsx 拆分／滑動／連擊／多層 Lazy／天氣擴充／隱藏房間／**PWA UpdatePrompt** |
-| **🐛 PWA 體驗修復** | ✅ 100% | NetworkFirst + 更新 toast + skipWaiting 主動更新 |
-| **🎬 開場 Marquee** | ✅ 100% | 雙份內容無縫循環，不再空白 30 秒 |
-| **Phase 7-12+ 餘下** | ⬜ 規劃中 | 50+ 項建議見 [§七](#七第二輪實作後新發現的進階改良) + [**§八**](#八pwa-修復後新發現的改良點) |
+| **Phase 14** 進階改良 | ✅ 75% | 滑動／連擊／拆模組／多層 Lazy／天氣／Boss／PWA Toast／Settings Store／快速繼續／**教師後台** |
+| **§八 立即補防線** | ✅ 100% | E2E + Error Boundary + F5 警告 |
+| **§八 遊戲完整性** | ✅ 100% | Settings / 快速繼續 / Onboarding / Install Prompt / Anonymous Auth |
+| **🎮 進階機制** | ✅ 100% | BGM 多軌 + 暱稱綁定 + Storybook + 視覺迴歸 + URL 連結 + Boss |
+| **🎨 細節打磨** | ✅ 100% | reduced-motion + size-limit + 8-bit 字 + 季節活動 |
+| **Phase 9-12 餘下** | ⬜ 規劃中 | 教學課程 / 分析 / 國際化 / Three.js 詳見 [§六](#六未來改良藍圖phase-512) |
 
-**目前統計**：
-- 📦 Bundle：首屏 ~145 KB gzip（react/motion/index/firebase + 6 lazy modal chunks）
-- 🧪 測試：**39** 個單元測試全綠（shop/constants/achievements/skins/combo/dailyChallenge/project）
-- 🔍 CI：typecheck + lint + test + build + Lighthouse CI **五道關卡**
-- 🌐 線上：HTTP 200 OK，PWA 可離線玩，新版主動 toast 提示
-- 🐧 障礙：**9** 種（含 WARP_FLAG 隱藏門）+ **4** 種環境事件
-- 🛒 道具：16 種補給站道具
-- 🏆 成就：**12** 個（含 2 個秘密成就：上古祕技 + 時空旅人）
-- 🎨 皮膚：5 款
-- 🔥 連擊：6 階倍率（×1 → ×15）
-- 📅 每日挑戰：7 種主題輪替
-- 📦 Lazy chunks：**6** 個（Firebase / 4 modal / shareImage / UpdatePrompt）
-- 🎨 Render 模組：**6** 個（project/drawFire/Environment/Obstacles/Penguin/Weather）
-- 🌐 PWA：NetworkFirst + 60s polling + 更新 toast + 5 秒「已可離線」綠色提示
+**🎯 目前統計**：
+
+| 類別 | 數值 |
+|---|---:|
+| 📦 Bundle 首屏 | ~145 KB gzip（4 預算守關） |
+| 🧪 單元測試 | **66** ✅ |
+| 🎭 E2E 測試 | **13** ✅ |
+| 🎨 視覺迴歸 baseline | 3（手動 opt-in） |
+| 🔍 CI 關卡 | typecheck → lint → test → build → **size** → E2E → Lighthouse |
+| 🐧 障礙物 | **10** 種（含 WARP / SNOWBALL）+ **4** 種天氣 |
+| 🛒 道具 | **19** |
+| 🏆 成就 | **13**（2 secret） |
+| 🎨 皮膚 | 5 |
+| 🎵 BGM 軌道 | 3 |
+| 🎮 模式 | 標準 / 每日 7 主題 / 時間競速 |
+| 📅 季節活動 | 6（自動） |
+| 🌟 隱藏房間 | 1 |
+| ⚔️ Boss | 企鵝王 L20 |
+| 📦 Lazy chunks | **8**（Firebase / 4 modal / shareImage / UpdatePrompt / InstallPrompt / BgmPicker / OnboardingHints / TeacherDashboard） |
+| 🎨 Render 模組 | 6 |
+| 📁 src/ 子目錄 | 13（render/game/audio/shop/skins/achievements/leaderboard/teacher/store/components/hooks/utils/stories） |
+| 🌐 Storybook stories | 11 |
+| 🔥 Firestore collections | 2（leaderboard + nicknames） |
 
 ---
 
@@ -54,7 +67,8 @@
 - [五、優化進度檢核清單](#五-優化進度檢核清單)
 - [**六、未來改良藍圖（Phase 5–12）**](#六未來改良藍圖phase-512) ← Phase 5+ 50+ 項詳細建議
 - [**七、第二輪實作後新發現的進階改良**](#七第二輪實作後新發現的進階改良) ← Phase 14 詳細建議
-- [**八、PWA 修復後新發現的改良點**](#八pwa-修復後新發現的改良點) ← **🆕 最新一波修復觀察的 17 項建議**
+- [**八、PWA 修復後新發現的改良點**](#八pwa-修復後新發現的改良點) ← 17 項建議
+- [**九、v6 開發里程碑摘要**](#九v6-開發里程碑摘要) ← **🆕 最新完成的所有改動清單**
 
 ---
 
@@ -723,50 +737,76 @@ test('遊戲可以開始', async ({ page }) => {
 - [x] 🛡️ GitHub Secret Scanning Alert dismiss as false_positive
 - [ ] 排行榜的好友邀請連結（分享 URL 帶分數，如 `?challenge=12345`）
 
-### ✅ Phase 5：改良包（7/9 完成）
+### ✅ Phase 5：改良包（9/9 全完成）
 - [x] **5-1** 動態載入 Firebase（主 chunk gzip 從 129 → 89 KB，**省 32%**）
-- [x] **5-2** Canvas 自適應尺寸（max-w 改成 viewport 動態算）
-- [x] **5-4** Vibration API 觸覺回饋（5 種震動模式，跟靜音連動）
-- [x] **5-7** Lighthouse CI（每次部署後 + 每日自動跑）
-- [ ] 5-3 prefers-reduced-motion 支援
-- [ ] 5-5 React 19 Concurrent (useTransition)
-- [ ] 5-6 Bundle Size Monitoring (size-limit)
-- [ ] 5-8 圖片資產優化
-- [ ] 5-9 Press Start 2P 8-bit 字型
+- [x] **5-2** Canvas 自適應尺寸
+- [x] **5-3** prefers-reduced-motion 支援（marquee + combo flash 弱化）
+- [x] **5-4** Vibration API 觸覺回饋
+- [x] **5-6** Bundle Size Monitoring（size-limit + CI 守關 4 預算）
+- [x] **5-7** Lighthouse CI
+- [x] **5-9** Press Start 2P 8-bit 字型（HUD 數字復古化）
+- [ ] 5-5 React 19 Concurrent (useTransition) — 低優先級
+- [ ] 5-8 圖片資產優化 — 目前都是 SVG 不需要
 
-### ✅ Phase 6：遊戲設計擴充（5/8 完成）
-- [x] **6-1** 新障礙物 — 北極熊 L9+ / 冰山 L11+ / 暴風雪 L13+ / **WIND L15+ / NIGHT L17+ / FOG L19+**
+### ✅ Phase 6：遊戲設計擴充（7/8 完成）
+- [x] **6-1** 新障礙物 — 北極熊 L9+ / 冰山 L11+ / **暴風雪 L13+ / WIND L15+ / NIGHT L17+ / FOG L19+**
+- [x] **6-2** 新道具（傳送門 / 時光倒流 / 雙人企鵝）
 - [x] **6-3** 每日挑戰（7 種主題輪替）
-- [x] **6-7** 企鵝皮膚（5 款，3 個成就解鎖 + 全成就解鎖黃金款）
-- [ ] 6-2 新道具（傳送門 / 時光倒流 / 雙人企鵝）
-- [ ] 6-4 時間競速模式
-- [ ] 6-5 Boss 戰（企鵝王 L20）
-- [ ] 6-6 季節限定活動（聖誕／農曆新年）
-- [ ] 6-8 自製關卡編輯器（教師專用）
+- [x] **6-4** 時間競速模式
+- [x] **6-5** Boss 戰（企鵝王 L20 + SNOWBALL 障礙）
+- [x] **6-6** 季節限定活動（6 個：聖誕／農曆／中秋／萬聖／春假／暑假）
+- [x] **6-7** 企鵝皮膚（5 款）
+- [ ] 6-8 自製關卡編輯器（教師專用）— 留作 v2.0
 
 ### ✅ Phase 7：多人/社群（1/5 完成）
-- [x] **7-3** 截圖分享（1200×630 PNG + Web Share API + 下載 fallback）
+- [x] **7-3** 截圖分享（1200×630 PNG + Web Share API）
 - [ ] 7-1 即時雙人對戰
 - [ ] 7-2 朋友邀請賽（分享挑戰連結）
 - [ ] 7-4 Replay 錄影分享（MediaRecorder）
 - [ ] 7-5 班級私人排行榜
 
-### ✅ Phase 14：進階改良（9/15 完成）
+### ✅ Phase 8：A11y / i18n（1/5 完成）
+- [x] **8-2 部分** 螢幕閱讀器：所有按鈕已有 aria-label
+- [ ] 8-1 i18n 多語系
+- [ ] 8-3 色盲模式
+- [ ] 8-4 鍵盤可重綁定
+- [ ] 8-5 難度等級
+
+### ✅ Phase 14：進階改良（13/15 完成）
 - [x] **14-1** App.tsx 第二階段拆分（render/ 6 個模組）
 - [x] **14-2** 滑動手勢操控
-- [x] **14-3** 多層 Lazy Loading（Achievements/SkinPicker/shareImage 各自 chunk）
+- [x] **14-3** 多層 Lazy Loading（4 modal + shareImage + UpdatePrompt + InstallPrompt + BgmPicker）
 - [x] **14-4** 連擊系統（6 階倍率 + tier flash）
 - [x] **14-5** 環境天氣擴充（NIGHT/FOG/WIND）
-- [x] **14-6** 隱藏房間 BLUE_FLAG warp（WARP_FLAG → BONUS_ROOM）
-- [x] **14-7** PWA 安裝提示（**部分**：UpdatePrompt toast 已加，加到主畫面 prompt 待補）
-- [ ] 14-8 Firestore Anonymous Auth + 反作弊
-- [ ] 14-9 教師後台儀表板
-- [ ] 14-10 程式碼導讀模式
-- [ ] 14-11 Tilt steering 陀螺儀
-- [ ] 14-12 完美過關獎勵
-- [ ] 14-13 朋友挑戰連結
-- [ ] 14-14 視覺迴歸測試
-- [ ] 14-15 i18n + itch.io 投稿
+- [x] **14-6** 隱藏房間 WARP_FLAG → BONUS_ROOM
+- [x] **14-7** PWA 安裝提示（UpdatePrompt + InstallPrompt 都做了）
+- [x] **14-8** Firestore Anonymous Auth + uid 綁定 + nicknames 註冊表
+- [x] **14-9** 教師後台儀表板（?teacher=1，5 大區塊）
+- [x] **14-10 部分** 程式碼導讀模式（已抽 Storybook + 模組化，剩 modal 教學版）
+- [x] **14-12 替代** 完美過關 — 改為「弒王者」L20 成就
+- [x] **14-13 替代** 朋友挑戰連結 — 用 URL 深度連結 ?screen= ?skin=
+- [x] **14-14** 視覺迴歸測試（Playwright + 3 baseline）
+- [ ] 14-11 Tilt steering 陀螺儀（看興趣）
+- [ ] 14-15 i18n + itch.io 投稿（國際化）
+
+### ✅ §八 PWA 修復後新發現（11/17 完成）
+- [x] **16-1** E2E 測試（Playwright 13 個 + 視覺迴歸 3 個）
+- [x] **16-2** PWA 加到主畫面
+- [x] **16-3** 集中化 Settings Store（9 個 key 集中管理）
+- [x] **16-4** React Error Boundary
+- [x] **16-5** 遊戲中 F5 警告
+- [x] **16-6** 多 BGM 軌可選（3 軌）
+- [x] **16-7** Storybook（11 stories）
+- [x] **16-8** Canvas 視覺迴歸測試
+- [x] **16-10** URL 深度連結
+- [x] **16-11** Firebase Anonymous Auth
+- [x] **16-12** 暱稱與 uid 綁定
+- [x] **16-13** Onboarding 箭頭教學
+- [x] **16-15** 快速繼續上次未完成場次
+- [ ] 16-9 Web Worker game loop（暑假大專案）
+- [ ] 16-14 marquee Tab 跳段（看興趣）
+- [ ] 16-16 成就進度條（看興趣）
+- [ ] 16-17 淺色模式偵測（看興趣）
 
 ### ⬜ Phase 8–13：尚未開始
 詳見下方 [§六、未來改良藍圖](#六未來改良藍圖phase-512)
@@ -1657,10 +1697,65 @@ await signInAnonymously(auth);
 
 ---
 
-## 🎯 一句話總結（v4）
+## 🎯 一句話總結（v6）
 
-> 1 個月內：拆分 + 模組化 + 多層 Lazy + 6 種障礙 + 4 種天氣 + 12 成就 + 5 皮膚 + 每日挑戰 + PWA 修復都已上線。
-> 下一波最高 CP 值：**E2E 測試**（一勞永逸防部署 bug） + **Error Boundary** + **F5 警告**。
+> 1.5 個月密集開發：從 AI Studio 模板 → 完整 PWA 遊戲：
+> **10 障礙物 + 4 天氣 + 19 道具 + 13 成就 + 5 皮膚 + 3 BGM + 6 季節活動 + 3 模式 + Boss + 隱藏房間 + 教師後台**
+> 全部已上線，66 單元測試 + 13 E2E + Lighthouse CI + size-limit 守關。
+>
+> 下一波建議：**8-1 i18n 多語系 + 14-15 投 itch.io 國際曝光**，把作品帶到全世界。
+
+---
+
+## 九、v6 開發里程碑摘要
+
+> 從 2026-04-29 v3 → 2026-04-30 v6 短短一天的密集開發，完成的所有改動。
+
+### Phase 14 進階改良（完成）
+- **14-1** App.tsx 第二階段拆分：render/ 6 個模組（drawFire / Environment / Obstacles / Penguin / Weather / project）
+- **14-2** 滑動手勢操控（左滑右滑上滑）
+- **14-3** 多層 Lazy Loading（成 8 個 chunks）
+- **14-4** 連擊系統（6 階 ×1 → ×15）
+- **14-5** 環境天氣擴充（暴風雪 + 強風 + 極夜 + 大霧）
+- **14-6** 隱藏房間 WARP_FLAG → BONUS_ROOM 8 秒金魚雨
+- **14-7** PWA 完整：UpdatePrompt + InstallPrompt
+- **14-8** Firebase Anonymous Auth 反作弊
+- **14-9** 🎓 教師後台儀表板
+- **14-12** 暱稱與 uid 綁定（防盜用名字）
+- **14-14** Playwright 視覺迴歸測試
+
+### §八 立即補防線（完成）
+- **16-1** E2E 13 個測試（Playwright + CI workflow_run 雙段）
+- **16-3** 集中化 Settings Store（9 keys）
+- **16-4** React Error Boundary
+- **16-5** F5 / 上一頁警告
+- **16-6** 3 軌 BGM（溜冰圓舞曲 / 鬥牛士進行曲 / 卡林卡）
+- **16-7** Storybook（11 stories）
+- **16-10** URL 深度連結
+- **16-13** 第一次玩 onboarding 箭頭
+- **16-15** 快速繼續上次未完成場次
+
+### Phase 6 遊戲擴充（5 項完成）
+- **6-1** 6 種環境天氣
+- **6-2** 3 個新道具（傳送門 / 時光倒流 / 雙人企鵝）
+- **6-3** 每日挑戰 7 主題輪替
+- **6-4** 時間競速模式
+- **6-5** ⚔️ Boss 戰：企鵝王 L20 + SNOWBALL 障礙
+- **6-6** 6 個季節活動自動切換
+
+### Phase 5 細節打磨（4 項完成）
+- **5-3** prefers-reduced-motion
+- **5-6** size-limit 4 個預算
+- **5-9** Press Start 2P 8-bit 字型
+- **5-7** Lighthouse CI
+
+### 安全 / 修復
+- 🐛 PWA 舊 SW 服務 stale index.html → NetworkFirst + skipWaiting + 60s polling
+- 🐛 開場 marquee 30 秒空白 → 雙份內容無縫循環
+- 🐛 lazy chunk 404 → ErrorBoundary 主動 unregister SW
+- 🔒 API key referrer + API target 限制
+- 🔒 Firestore rules 嚴格驗證 + uid 綁定 + nicknames 註冊表
+- 🔒 GitHub Secret Scanning 處理
 
 ---
 
