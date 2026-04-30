@@ -1227,8 +1227,8 @@ export default function App() {
         
         // Jump/Fly physics
         if (g.propellerTime > 0) {
-        // Flying logic: Space/Up to go up
-        if (keys.current['Space'] || keys.current['ArrowUp'] || keys.current['KeyW']) {
+        // Flying logic: Space/Up (keyboard), 按住螢幕 (touch), 手把加速 (gamepad) → 上升
+        if (keys.current['Space'] || keys.current['ArrowUp'] || keys.current['KeyW'] || g.isTouchAccelerating || g.isGamepadAccelerating) {
           p.vy = -5; // Constant upward force when held
           p.isJumping = true;
         } else {
