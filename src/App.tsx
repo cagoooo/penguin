@@ -1783,10 +1783,11 @@ export default function App() {
           : 'w-full max-w-[min(95vw,calc((100dvh-180px)*1.4))] flex-1 justify-start pt-0'
       }`}>
         <div className={`w-full flex flex-col ${isFullscreen ? 'h-full' : 'flex-1 h-full'}`}>
-          {/* HUD */}
+          {/* HUD — only shown during gameplay so START / GAME_OVER / LEVEL_CLEAR overlays can use full height */}
+          {gameState === 'PLAYING' && (
           <div className={`w-full mb-0.5 sm:mb-2 grid gap-1 sm:gap-3 flex-shrink-0 transition-all duration-300 h-auto z-10 px-1 sm:px-0 mt-1 ${
-            isFullscreen && isPortrait && !mobileOpt 
-              ? 'grid-cols-3 text-[10px]' 
+            isFullscreen && isPortrait && !mobileOpt
+              ? 'grid-cols-3 text-[10px]'
               : 'grid-cols-3 md:grid-cols-6'
           }`}>
             {/* Cell 1: Score */}
@@ -1857,6 +1858,7 @@ export default function App() {
               </div>
             </div>
           </div>
+          )}
 
           {/* Game Canvas Container */}
           <div className={`relative flex-1 rounded-none sm:rounded-2xl overflow-hidden shadow-2xl border-x-0 sm:border-4 border-white/10 bg-black ${!isFullscreen ? 'mb-0' : ''}`}>
