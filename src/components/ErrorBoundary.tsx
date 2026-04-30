@@ -9,6 +9,7 @@
 // for those — see e.g. handleShareScore in App.tsx).
 
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { clearAllSettings } from '../store/settings';
 
 interface Props {
   children: ReactNode;
@@ -45,7 +46,8 @@ export class ErrorBoundary extends Component<Props, State> {
   };
 
   private handleClearAndReload = () => {
-    try { localStorage.clear(); } catch { /* private mode */ }
+    // Clear only OUR keys — leaves other apps on the same origin alone
+    clearAllSettings();
     this.handleReload();
   };
 

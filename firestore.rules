@@ -3,16 +3,17 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     // Public leaderboard for the penguin game.
-    // Anyone can read the top scores; anyone can write a single entry as long as
-    // the data shape passes validation. No authentication required for now —
-    // this is a kids' game and the worst case is occasional spam, which the
-    // sort-by-score query naturally hides.
+    // Reads are open to everyone; writes require an authenticated user (we use
+    // anonymous auth on the client) and the uid in the doc must match the
+    // caller's auth.uid. This prevents pure-curl spam without forcing a login.
     match /leaderboard/{entryId} {
       allow read: if true;
 
-      allow create: if isValidEntry(request.resource.data);
+      allow create: if isValidEntry(request.resource.data) &&
+                       request.auth != null &&
+                       request.resource.data.uid == request.auth.uid;
 
-      // Entries are append-only; no updates or deletes from the client.
+      // Entries are append-only — no updates / deletes from the client.
       allow update, delete: if false;
     }
 
@@ -23,7 +24,7 @@ service cloud.firestore {
   }
 
   function isValidEntry(d) {
-    return d.keys().hasOnly(['name', 'score', 'level', 'createdAt'])
+    return d.keys().hasOnly(['name', 'score', 'level', 'uid', 'createdAt'])
       && d.name is string
       && d.name.size() >= 1
       && d.name.size() <= 12
@@ -33,6 +34,8 @@ service cloud.firestore {
       && d.level is int
       && d.level >= 1
       && d.level <= 999
+      && d.uid is string
+      && d.uid.size() >= 10
       && d.createdAt == request.time;
   }
 }

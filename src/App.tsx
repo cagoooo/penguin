@@ -11,6 +11,7 @@ import { useAchievements } from './achievements/useAchievements';
 import { getSkin, loadSkin, saveSkin, type SkinId } from './skins/skins';
 import { comboMultiplier, getComboTier, justEnteredNewTier, type ComboTier } from './game/combo';
 import { getDailyChallenge, loadDailyRecord, recordDailyAttempt } from './game/dailyChallenge';
+import { saveGame, loadSavedGame, clearSavedGame, type SavedGame } from './store/savedGame';
 import { drawEnvironment } from './render/drawEnvironment';
 import { drawObstacles } from './render/drawObstacles';
 import { drawPenguin } from './render/drawPenguin';
@@ -25,6 +26,10 @@ const AchievementsModal = lazy(() => import('./achievements/AchievementsModal'))
 const SkinPickerModal = lazy(() => import('./skins/SkinPickerModal'));
 // PWA update prompt — registers the SW + shows a toast when a new build lands.
 const UpdatePrompt = lazy(() => import('./components/UpdatePrompt'));
+// First-time-only control hints overlay (lazy because most repeat players never see it).
+const OnboardingHints = lazy(() => import('./components/OnboardingHints'));
+// PWA install prompt — appears after first GAME_OVER / LEVEL_CLEAR.
+const InstallPrompt = lazy(() => import('./components/InstallPrompt'));
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -161,6 +166,37 @@ export default function App() {
   const dailyConfig = getDailyChallenge();
   const dailyModeRef = useRef(false);
   useEffect(() => { dailyModeRef.current = dailyMode; }, [dailyMode]);
+
+  // 16-15 Quick continue: track if there's a saved session on mount
+  const [resumableSave, setResumableSave] = useState<SavedGame | null>(() => loadSavedGame());
+
+  // Auto-save mid-game state every 2 seconds while PLAYING (not in shop, paused, etc.)
+  useEffect(() => {
+    if (gameState !== 'PLAYING' || paused) return;
+    const interval = setInterval(() => {
+      const g = gameRef.current;
+      saveGame({
+        level: g.level,
+        score: g.score,
+        time: g.time,
+        distance: g.distance,
+        speed: g.speed,
+        lives: g.lives,
+        fishCollected: fishCollectedRef.current,
+        shopPurchases: shopPurchasesRef.current,
+        comboCount: comboCountRef.current,
+      });
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [gameState, paused]);
+
+  // Clear save on GAME_OVER / LEVEL_CLEAR (forces a clean session for the leaderboard)
+  useEffect(() => {
+    if (gameState === 'GAME_OVER' || gameState === 'LEVEL_CLEAR') {
+      clearSavedGame();
+      setResumableSave(null);
+    }
+  }, [gameState]);
 
   // Best score persistence on GAME_OVER
   useEffect(() => {
@@ -506,13 +542,17 @@ export default function App() {
   const keys = useRef<{ [key: string]: boolean }>({});
 
   // --- Initialization ---
-  const initGame = (isNextLevel: any = false) => {
+  const initGame = (isNextLevel: any = false, resumeFrom: SavedGame | null = null) => {
     initAudio();
     sounds.start();
     const g = gameRef.current;
 
     // Ensure isNextLevel is strictly boolean true, not an event object
     const actualNextLevel = isNextLevel === true;
+
+    // Resume mid-game from a saved snapshot. Skips fresh-run resets below
+    // and restores the per-game counters that drove combo / shop achievements.
+    const resuming = resumeFrom != null;
 
     // Reset per-game stats on a fresh run (NOT on level transitions)
     if (!actualNextLevel) {
@@ -553,7 +593,27 @@ export default function App() {
     }
 
     const baseTime = 30;
-    if (!actualNextLevel) {
+    if (resuming && resumeFrom) {
+      // Restore from a previous session — single-source-of-truth from sanitized save
+      g.score = resumeFrom.score;
+      g.levelDistance = 4200 * Math.pow(1.15, resumeFrom.level - 1);
+      g.level = resumeFrom.level;
+      g.time = resumeFrom.time;
+      g.lives = resumeFrom.lives;
+      g.hasSkateboard = false;
+      g.hasBigPropeller = false;
+      g.enteredShopLevel = 0;
+      g.pendingShopItems = [];
+      fishCollectedRef.current = resumeFrom.fishCollected;
+      shopPurchasesRef.current = resumeFrom.shopPurchases;
+      comboCountRef.current = resumeFrom.comboCount;
+      maxComboRef.current = resumeFrom.comboCount;
+      setScore(g.score);
+      setLevel(g.level);
+      setLives(g.lives);
+      setComboCount(g.score > 0 ? resumeFrom.comboCount : 0);
+      setResumableSave(null);
+    } else if (!actualNextLevel) {
       g.score = g.isGodMode ? 99999 : 0;
       g.levelDistance = 4200;
       g.level = 1;
@@ -1798,6 +1858,11 @@ export default function App() {
               }}
             />
 
+            {/* Onboarding hints — first-time PLAYING tutorial (lazy) */}
+            <Suspense fallback={null}>
+              <OnboardingHints active={gameState === 'PLAYING' && !paused} />
+            </Suspense>
+
             {/* Combo HUD — floating at top-center, only visible during play & combo > 0 */}
             {gameState === 'PLAYING' && comboCount >= 2 && (() => {
               const tier = getComboTier(comboCount);
@@ -2223,6 +2288,31 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Resumable save banner — only shown if a save exists */}
+                {resumableSave && !dailyMode && (
+                  <div className="mb-4 mx-auto max-w-md px-4 py-3 rounded-2xl bg-gradient-to-r from-amber-600/20 to-orange-600/20 border-2 border-amber-400/40">
+                    <p className="text-[10px] uppercase tracking-widest text-amber-200/80 mb-1">上次未完成</p>
+                    <p className="text-sm font-bold text-amber-100 mb-2">
+                      L{resumableSave.level} · {resumableSave.score.toLocaleString()} 分 · 剩 {Math.floor(resumableSave.time)} 秒
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => initGame(false, resumableSave)}
+                        className="flex-1 px-3 py-2 bg-amber-500 hover:bg-amber-400 text-black rounded-lg font-bold text-sm transition-all active:scale-95"
+                      >
+                        ▶ 繼續
+                      </button>
+                      <button
+                        onClick={() => { clearSavedGame(); setResumableSave(null); }}
+                        className="px-3 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-xs transition-all"
+                        title="放棄繼續，從頭開始"
+                      >
+                        ✕ 放棄
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center items-center flex-wrap">
                   <button
                     onClick={() => initGame(false)}
@@ -2510,6 +2600,11 @@ export default function App() {
   {/* PWA update prompt — toast when new SW is ready */}
   <Suspense fallback={null}>
     <UpdatePrompt />
+  </Suspense>
+
+  {/* PWA install prompt — only after first GAME_OVER or LEVEL_CLEAR */}
+  <Suspense fallback={null}>
+    <InstallPrompt triggerVisible={gameState === 'GAME_OVER' || gameState === 'LEVEL_CLEAR'} />
   </Suspense>
 
   {/* Author Footer */}

@@ -2,8 +2,9 @@
 // been unlocked render as "???" so easter-egg hints stay hidden.
 
 import { motion, AnimatePresence } from 'motion/react';
-import { Trophy } from 'lucide-react';
+import { Trophy, Download, Trash2 } from 'lucide-react';
 import type { AchievementDef, AchievementId } from './definitions';
+import { downloadSettingsAsFile, clearAllSettings } from '../store/settings';
 
 interface Props {
   unlocked: Set<AchievementId>;
@@ -61,6 +62,31 @@ export default function AchievementsModal({ unlocked, all, onClose }: Props) {
                 </div>
               );
             })}
+          </div>
+
+          {/* Data management — export / wipe */}
+          <div className="mt-6 pt-4 border-t border-white/10 flex flex-wrap gap-2 justify-center">
+            <button
+              onClick={() => downloadSettingsAsFile()}
+              className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/20 rounded-full text-xs flex items-center gap-1 transition-all"
+              title="把成就 / 最高分 / 皮膚等資料下載成 JSON 備份"
+            >
+              <Download size={12} />
+              匯出資料
+            </button>
+            <button
+              onClick={() => {
+                if (confirm('確定要清除所有資料嗎？\n\n包含最高分、成就、皮膚、暱稱、每日紀錄都會消失。')) {
+                  clearAllSettings();
+                  window.location.reload();
+                }
+              }}
+              className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-400/30 text-red-200 rounded-full text-xs flex items-center gap-1 transition-all"
+              title="清除所有遊戲資料（最高分、成就、皮膚等）"
+            >
+              <Trash2 size={12} />
+              重設所有資料
+            </button>
           </div>
         </motion.div>
       </motion.div>
