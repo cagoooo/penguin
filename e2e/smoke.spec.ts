@@ -11,7 +11,7 @@ import { test, expect } from '@playwright/test';
 
 test.describe('START screen', () => {
   test('loads with title + start button + footer', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('./');
     await expect(page.getByRole('heading', { name: '南極大冒險' }).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /開始冒險/ })).toBeVisible();
     // Footer credits both authors
@@ -20,7 +20,7 @@ test.describe('START screen', () => {
   });
 
   test('marquee shows real content within 10 seconds (no 30s blank gap)', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('./');
     // Marquee kicks in after 3s idle, then AnimatePresence transitions the
     // static→scroll content. Total budget: 10s — comfortably under the OLD
     // 30s blank window that was the regression we're guarding against.
@@ -31,7 +31,7 @@ test.describe('START screen', () => {
     await page.addInitScript(() => {
       localStorage.setItem('penguin_best', '12345');
     });
-    await page.goto('/');
+    await page.goto('./');
     await expect(page.getByText(/歷史最高分/)).toBeVisible();
     await expect(page.getByText('12,345')).toBeVisible();
   });
@@ -39,7 +39,7 @@ test.describe('START screen', () => {
 
 test.describe('Modals (lazy-loaded)', () => {
   test('排行榜 modal opens (Firebase chunk lazy-loads)', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('./');
     await page.getByRole('button', { name: '排行榜' }).first().click();
     await expect(page.getByRole('heading', { name: /全球排行榜/ })).toBeVisible({ timeout: 10000 });
     // Either entries appear OR an empty/loading message — both are fine
@@ -48,7 +48,7 @@ test.describe('Modals (lazy-loaded)', () => {
   });
 
   test('成就 modal opens with correct count', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('./');
     await page.getByRole('button', { name: /成就/ }).click();
     // Modal heading specifically (not the button on the START screen)
     await expect(page.getByRole('heading', { name: /成就 \(0\/12\)/ })).toBeVisible();
@@ -58,7 +58,7 @@ test.describe('Modals (lazy-loaded)', () => {
   });
 
   test('換造型 modal opens with default skin selected', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('./');
     await page.getByRole('button', { name: /換造型/ }).click();
     await expect(page.getByText('經典企鵝')).toBeVisible();
     await expect(page.getByText('使用中')).toBeVisible();
@@ -68,7 +68,7 @@ test.describe('Modals (lazy-loaded)', () => {
 
 test.describe('Daily Challenge', () => {
   test('today challenge banner is shown', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('./');
     await expect(page.getByText('今日挑戰')).toBeVisible();
     // Theme name is one of the 7 valid themes
     const themes = ['經典日', '北極熊日', '冰山日', '黃金魚日', '時間充裕日', '極速日', '暴風雪日', '連擊狂熱日'];
@@ -83,7 +83,7 @@ test.describe('Daily Challenge', () => {
   });
 
   test('daily challenge can be toggled on', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('./');
     await page.getByRole('button', { name: '啟用' }).click();
     // Button text changes after activation
     await expect(page.getByRole('button', { name: /已啟用/ })).toBeVisible();
@@ -92,7 +92,7 @@ test.describe('Daily Challenge', () => {
 
 test.describe('Gameplay entry', () => {
   test('開始冒險 button starts a game (canvas becomes visible)', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('./');
     await page.getByRole('button', { name: /開始冒險/ }).click();
     // Canvas should remain in DOM and START overlay should be gone
     await expect(page.locator('canvas')).toBeVisible();
