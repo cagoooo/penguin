@@ -161,6 +161,34 @@ export async function submitScore(name: string, score: number, level: number): P
 /**
  * Subscribe to top N scores. Returns an unsubscribe function.
  */
+/**
+ * Fetch a larger window of leaderboard entries (up to 200) for the teacher
+ * dashboard. Aggregations happen client-side — a Cloud Function would be
+ * better at scale, but for a kids' game this is fine.
+ */
+export async function fetchAllLeaderboardEntries(maxN = 200): Promise<LeaderboardEntry[]> {
+  const db = getDb();
+  const { getDocs } = await import('firebase/firestore');
+  const q = query(
+    collection(db, 'leaderboard'),
+    orderBy('score', 'desc'),
+    limit(maxN),
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map(d => {
+    const data = d.data();
+    const created = data.createdAt instanceof Timestamp ? data.createdAt.toDate() : null;
+    return {
+      id: d.id,
+      name: typeof data.name === 'string' ? data.name : '???',
+      score: typeof data.score === 'number' ? data.score : 0,
+      level: typeof data.level === 'number' ? data.level : 1,
+      uid: typeof data.uid === 'string' ? data.uid : undefined,
+      createdAt: created,
+    };
+  });
+}
+
 export function subscribeTopScores(
   topN: number,
   onUpdate: (entries: LeaderboardEntry[]) => void,

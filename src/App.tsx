@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trophy, Timer, MapPin, Play, RotateCcw, ChevronRight, ChevronLeft, ArrowUp, Maximize, Minimize, ShoppingCart, Heart, Zap, Clock, Smartphone, Shield, Search, Wind, Compass, Rocket, Fish, Volume2, VolumeX, Pause, Camera } from 'lucide-react';
+import { Trophy, Timer, MapPin, Play, RotateCcw, ChevronRight, ChevronLeft, ArrowUp, Maximize, Minimize, ShoppingCart, Heart, Zap, Clock, Smartphone, Shield, Search, Wind, Compass, Rocket, Fish, Volume2, VolumeX, Pause, Camera, DoorOpen, Rewind, Users } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { ALL_SHOP_ITEMS as SHOP_DATA, getShopItem, type ShopItemMeta } from './shop/items';
 import { initAudio, playTone, sounds, mutedRef, pausedRef } from './audio/sounds';
@@ -32,6 +32,8 @@ const OnboardingHints = lazy(() => import('./components/OnboardingHints'));
 const InstallPrompt = lazy(() => import('./components/InstallPrompt'));
 // BGM track picker — small dropdown on START screen.
 const BgmPicker = lazy(() => import('./components/BgmPicker'));
+// Teacher dashboard — gated by ?teacher=1 URL param.
+const TeacherDashboard = lazy(() => import('./teacher/TeacherDashboard'));
 import {
   CANVAS_WIDTH,
   CANVAS_HEIGHT,
@@ -45,6 +47,7 @@ import {
 // Map iconName strings (defined in src/shop/items.ts) to actual lucide-react components.
 const ICON_COMPONENTS = {
   Clock, Maximize, Zap, Heart, Shield, Search, ChevronRight, Wind, Compass, Fish, Timer, Rocket, Trophy,
+  DoorOpen, Rewind, Users,
 } as const;
 
 function renderShopIcon(meta: ShopItemMeta) {
@@ -159,14 +162,18 @@ export default function App() {
   // 16-6 BGM track selection
   const [bgmTrack, setBgmTrack] = useState<BgmTrackId>(loadBgmTrack);
 
+  // Teacher dashboard gate: ?teacher=1
+  const [showTeacherDashboard, setShowTeacherDashboard] = useState(false);
+
   // 16-10 URL deep links: read once on mount
-  // Supported: ?screen=leaderboard|achievements|skins · ?skin=red-scarf|sunglasses|crown|golden
+  // Supported: ?screen=leaderboard|achievements|skins · ?skin=red-scarf|sunglasses|crown|golden · ?teacher=1
   // After consuming params we strip them from the URL so a refresh doesn't re-trigger.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     const screen = params.get('screen');
     const skin = params.get('skin');
+    const teacher = params.get('teacher');
 
     if (screen === 'leaderboard') setShowLeaderboard(true);
     else if (screen === 'achievements') setShowAchievements(true);
@@ -176,7 +183,11 @@ export default function App() {
       setCurrentSkin(skin as SkinId);
     }
 
-    if (screen || skin) {
+    if (teacher === '1') {
+      setShowTeacherDashboard(true);
+    }
+
+    if (screen || skin || teacher) {
       // Clean URL so future shares of "the URL the player saw" don't re-trigger
       const clean = window.location.pathname + window.location.hash;
       window.history.replaceState(null, '', clean);
@@ -195,6 +206,12 @@ export default function App() {
   const dailyConfig = getDailyChallenge();
   const dailyModeRef = useRef(false);
   useEffect(() => { dailyModeRef.current = dailyMode; }, [dailyMode]);
+
+  // 6-4 Time Attack mode toggle
+  const [timeAttackMode, setTimeAttackMode] = useState(false);
+  const timeAttackModeRef = useRef(false);
+  useEffect(() => { timeAttackModeRef.current = timeAttackMode; }, [timeAttackMode]);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   // 16-15 Quick continue: track if there's a saved session on mount
   const [resumableSave, setResumableSave] = useState<SavedGame | null>(() => loadSavedGame());
@@ -497,6 +514,12 @@ export default function App() {
     hasKingCrown: false,
     hasHeavyBoots: false,
     hasDetector: false,
+    // 6-2 new shop items
+    rewindCharges: 0,        // 時光倒流: how many remaining "undo" charges
+    hasTwinPenguins: false,  // 雙人企鵝: permanent magnet + 2x fish bonus
+    // 6-4 Time Attack mode: timer counts UP from 0, no time limit
+    timeAttackMode: false,
+    elapsedSeconds: 0,
     timeFrozen: 0,
     nitroTime: 0,
     maxSpeedBonus: 0,
@@ -592,6 +615,9 @@ export default function App() {
       maxComboRef.current = 0;
       setComboCount(0);
       setComboFlash(null);
+      g.timeAttackMode = timeAttackModeRef.current;
+      g.elapsedSeconds = 0;
+      setElapsedSeconds(0);
     }
     
     // Apply pending shop items if it's the next level
@@ -613,6 +639,8 @@ export default function App() {
         { id: 'timering', apply: () => { g.timeFrozen = 15; } },
         { id: 'antigravity', apply: () => { g.propellerTime = 20; sounds.powerup(); } },
         { id: 'crown', apply: () => { g.hasKingCrown = true; } },
+        { id: 'rewind', apply: () => { g.rewindCharges += 1; } },
+        { id: 'twin_penguins', apply: () => { g.hasTwinPenguins = true; g.hasMagnet = true; } },
       ];
 
       g.pendingShopItems.forEach(itemId => {
@@ -844,7 +872,7 @@ export default function App() {
           const dpadLeft = gp.buttons[14]?.pressed;
           const dpadRight = gp.buttons[15]?.pressed;
 
-          const currentLevelItems = g.isGodMode ? ALL_SHOP_ITEMS : ALL_SHOP_ITEMS.slice(0, Math.min(16, 4 + g.level));
+          const currentLevelItems = g.isGodMode ? ALL_SHOP_ITEMS : ALL_SHOP_ITEMS.slice(0, Math.min(ALL_SHOP_ITEMS.length, 4 + g.level));
           let currentIdx = currentLevelItems.findIndex(item => item.id === selectedShopItem);
           if (currentIdx === -1) currentIdx = 0;
 
@@ -965,6 +993,10 @@ export default function App() {
         g.timeFrozen -= 1/60;
       } else if (g.bonusRoomTime > 0) {
         // Time freezes during the bonus room
+      } else if (g.timeAttackMode) {
+        // Time Attack: count UP, no countdown limit. Used as the speedrun clock.
+        g.elapsedSeconds += 1/60;
+        setElapsedSeconds(g.elapsedSeconds);
       } else {
         g.time -= 1/60;
         setTime(Math.max(0, g.time));
@@ -977,7 +1009,8 @@ export default function App() {
         }
       }
 
-      if (g.time <= 0) {
+      // Time Attack mode never runs out of time — only finishes by reaching the goal
+      if (!g.timeAttackMode && g.time <= 0) {
         if (g.lives > 0) {
           g.lives -= 1;
           g.time = 20; // Revived with 20 seconds
@@ -1442,6 +1475,7 @@ export default function App() {
                       else if (obs.color === '#FFD700') points = 1000;
                       else points = 500;
                       if (g.hasTripleFish) points *= 3;
+                      if (g.hasTwinPenguins) points *= 2;
                       fishCollectedRef.current += 1;
                       isComboItem = true;
                       sounds.fish();
@@ -1628,6 +1662,12 @@ export default function App() {
               }
 
               if (p.stumbleTime <= 0 && !isJumpingOver) {
+                // Time-rewind charge absorbs the entire stumble (combo stays!)
+                if (g.rewindCharges > 0) {
+                  g.rewindCharges -= 1;
+                  sounds.powerup();
+                  return;
+                }
                 p.stumbleTime = 1.0;
                 p.stumbleSide = p.x > holeX ? 1 : -1;
                 g.speed = Math.max(20, g.speed * 0.3);
@@ -1751,14 +1791,20 @@ export default function App() {
                 <p className="text-sm sm:text-xl font-mono font-bold text-white leading-tight">{level}</p>
               </div>
             </div>
-            {/* Cell 4: Time */}
+            {/* Cell 4: Time (countdown) or Elapsed (Time Attack) */}
             <div className="bg-white/10 backdrop-blur-md rounded-lg sm:rounded-xl p-2 sm:p-3 border border-white/20 flex flex-col justify-center items-center text-center">
-              <Timer className="text-blue-400 w-4 h-4 sm:w-5 h-5 mb-0.5" />
+              <Timer className={`w-4 h-4 sm:w-5 h-5 mb-0.5 ${timeAttackMode ? 'text-pink-400' : 'text-blue-400'}`} />
               <div className="min-w-0">
-                <p className="text-[8px] sm:text-[10px] uppercase tracking-wider opacity-60">時間</p>
-                <p className={`text-sm sm:text-xl font-mono font-bold text-white leading-tight ${time < 20 ? 'text-red-400 animate-pulse' : ''}`}>
-                  {Math.max(0, Math.floor(time))} 秒
-                </p>
+                <p className="text-[8px] sm:text-[10px] uppercase tracking-wider opacity-60">{timeAttackMode ? '計時' : '時間'}</p>
+                {timeAttackMode ? (
+                  <p className="text-sm sm:text-xl font-mono font-bold text-pink-200 leading-tight tabular-nums">
+                    {elapsedSeconds.toFixed(1)}s
+                  </p>
+                ) : (
+                  <p className={`text-sm sm:text-xl font-mono font-bold text-white leading-tight ${time < 20 ? 'text-red-400 animate-pulse' : ''}`}>
+                    {Math.max(0, Math.floor(time))} 秒
+                  </p>
+                )}
               </div>
             </div>
             {/* Cell 5: Distance */}
@@ -1995,13 +2041,13 @@ export default function App() {
                       isPortrait && !mobileOpt ? 'flex-col overflow-y-auto' : ''
                     }`}>
                       
-                      {/* Left Side: Item Grid */}
+                      {/* Left Side: Item Grid (5×4 = 20 slots, fits 19 items + 1 placeholder) */}
                       <div className={`grid gap-1 p-1 bg-[#1a1a3a] border-2 border-[#3a3a5a] flex-shrink-0 ${
-                        isPortrait && !mobileOpt ? 'grid-cols-4 h-[250px]' : 'flex-1 grid-cols-4 grid-rows-4'
+                        isPortrait && !mobileOpt ? 'grid-cols-4 h-[300px]' : 'flex-1 grid-cols-4 grid-rows-5'
                       }`}>
                         {(() => {
-                          const itemsForLevel = gameRef.current.isGodMode ? ALL_SHOP_ITEMS : ALL_SHOP_ITEMS.slice(0, Math.min(16, 4 + level));
-                          const placeholders = Array(Math.max(0, 16 - itemsForLevel.length)).fill(null).map((_, i) => ({ 
+                          const itemsForLevel = gameRef.current.isGodMode ? ALL_SHOP_ITEMS : ALL_SHOP_ITEMS.slice(0, Math.min(ALL_SHOP_ITEMS.length, 4 + level));
+                          const placeholders = Array(Math.max(0, 20 - itemsForLevel.length)).fill(null).map((_, i) => ({
                             id: `null-${i}`, 
                             name: '無物體', 
                             icon: <span className="text-4xl opacity-20">?</span>, 
@@ -2143,6 +2189,9 @@ export default function App() {
                                   setTime(gameRef.current.time);
                                 } else if (currentItem.id === 'compass') {
                                   gameRef.current.distance = Math.max(0, gameRef.current.distance - 1000);
+                                  setDistance(gameRef.current.distance);
+                                } else if (currentItem.id === 'warp_door') {
+                                  gameRef.current.distance = Math.max(0, gameRef.current.distance - 500);
                                   setDistance(gameRef.current.distance);
                                 } else {
                                   // Buffering into pendingShopItems - will take effect next level
@@ -2337,6 +2386,33 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Time Attack toggle */}
+                <div className={`mb-3 mx-auto max-w-md px-4 py-2 rounded-2xl border-2 transition-all ${
+                  timeAttackMode
+                    ? 'bg-gradient-to-r from-pink-600/30 to-rose-600/30 border-pink-400'
+                    : 'bg-white/5 border-white/15 hover:border-white/30'
+                }`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl">⚡</span>
+                      <div className="text-left">
+                        <p className="font-bold text-sm">時間競速模式</p>
+                        <p className="text-[10px] opacity-60 leading-tight">無時限，計時跑完一關看誰最快</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setTimeAttackMode(m => !m)}
+                      className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                        timeAttackMode
+                          ? 'bg-pink-500 hover:bg-pink-400 text-white'
+                          : 'bg-white/10 hover:bg-white/20 text-white border border-white/30'
+                      }`}
+                    >
+                      {timeAttackMode ? '✓ 已啟用' : '啟用'}
+                    </button>
+                  </div>
+                </div>
+
                 {/* Resumable save banner — only shown if a save exists */}
                 {resumableSave && !dailyMode && (
                   <div className="mb-4 mx-auto max-w-md px-4 py-3 rounded-2xl bg-gradient-to-r from-amber-600/20 to-orange-600/20 border-2 border-amber-400/40">
@@ -2525,10 +2601,17 @@ export default function App() {
                   <p className="text-sm uppercase opacity-60 mb-1">得分</p>
                   <p className="text-4xl font-mono font-bold">{score}</p>
                 </div>
-                <div className="bg-black/20 p-6 rounded-2xl">
-                  <p className="text-sm uppercase opacity-60 mb-1">時間獎勵</p>
-                  <p className="text-4xl font-mono font-bold">+{Math.floor(time * 10)}</p>
-                </div>
+                {timeAttackMode ? (
+                  <div className="bg-pink-500/20 border-2 border-pink-400/40 p-6 rounded-2xl">
+                    <p className="text-sm uppercase opacity-70 mb-1 text-pink-200">⚡ 完成時間</p>
+                    <p className="text-4xl font-mono font-bold text-pink-100">{elapsedSeconds.toFixed(2)}s</p>
+                  </div>
+                ) : (
+                  <div className="bg-black/20 p-6 rounded-2xl">
+                    <p className="text-sm uppercase opacity-60 mb-1">時間獎勵</p>
+                    <p className="text-4xl font-mono font-bold">+{Math.floor(time * 10)}</p>
+                  </div>
+                )}
               </div>
               <div className="flex gap-3 flex-wrap justify-center items-center">
               <button
@@ -2663,6 +2746,13 @@ export default function App() {
   <Suspense fallback={null}>
     <InstallPrompt triggerVisible={gameState === 'GAME_OVER' || gameState === 'LEVEL_CLEAR'} />
   </Suspense>
+
+  {/* Teacher dashboard — opt-in via ?teacher=1 URL param */}
+  {showTeacherDashboard && (
+    <Suspense fallback={null}>
+      <TeacherDashboard onClose={() => setShowTeacherDashboard(false)} />
+    </Suspense>
+  )}
 
   {/* Author Footer */}
   {!isFullscreen && (

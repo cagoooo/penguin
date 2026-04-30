@@ -19,7 +19,10 @@ export type ShopItemId =
   | 'bait'
   | 'timering'
   | 'antigravity'
-  | 'crown';
+  | 'crown'
+  | 'warp_door'      // 6-2: instant teleport -500m
+  | 'rewind'         // 6-2: absorbs ONE collision/slip next level
+  | 'twin_penguins'; // 6-2: permanent magnet + double fish points
 
 export type ShopItemTiming = 'immediate' | 'next-level';
 
@@ -40,7 +43,10 @@ export interface ShopItemMeta {
     | 'Fish'
     | 'Timer'
     | 'Rocket'
-    | 'Trophy';
+    | 'Trophy'
+    | 'DoorOpen'
+    | 'Rewind'
+    | 'Users';
   /** Tailwind classes applied to the icon element. */
   iconClass: string;
   /** Optional extra inline transform (e.g. boots' rotation). */
@@ -67,6 +73,9 @@ export const ALL_SHOP_ITEMS: readonly ShopItemMeta[] = [
   { id: 'timering', name: '克羅諾斯之戒', iconName: 'Timer', iconClass: 'w-10 h-10 text-amber-500', desc: '靜止的世界。 \n\n效果：【下關生效】凍結計時鐘 15 秒且維持移動量。', price: 100000, timing: 'next-level' },
   { id: 'antigravity', name: '反重力引擎', iconName: 'Rocket', iconClass: 'w-10 h-10 text-rose-500', desc: '飛躍南極。\n\n效果：【下關生效】直接獲得 20 秒長效飛行。', price: 150000, timing: 'next-level' },
   { id: 'crown', name: '探險王之冠', iconName: 'Trophy', iconClass: 'w-10 h-10 text-yellow-300 shadow-lg', desc: '無上榮耀。\n\n效果：【下關生效】永久獲得 3 倍的分數與距離加成。', price: 500000, timing: 'next-level' },
+  { id: 'warp_door', name: '傳送門', iconName: 'DoorOpen', iconClass: 'w-10 h-10 text-violet-400', desc: '一道神秘的門。\n\n效果：【立即生效】跳過 500m 距離。', price: 30000, timing: 'immediate' },
+  { id: 'rewind', name: '時光倒流', iconName: 'Rewind', iconClass: 'w-10 h-10 text-cyan-400', desc: '撤銷一次失誤。\n\n效果：【下關生效】抵消下一次撞擊或冰滑減速。', price: 70000, timing: 'next-level' },
+  { id: 'twin_penguins', name: '雙人企鵝', iconName: 'Users', iconClass: 'w-10 h-10 text-pink-400', desc: '永遠的好夥伴。\n\n效果：【下關生效】永久磁力 + 魚片分數 ×2。', price: 120000, timing: 'next-level' },
 ];
 
 export function getShopItem(id: ShopItemId | string | null): ShopItemMeta | undefined {
@@ -76,5 +85,5 @@ export function getShopItem(id: ShopItemId | string | null): ShopItemMeta | unde
 /** Items unlocked at a given level. God Mode unlocks everything. */
 export function shopItemsForLevel(level: number, godMode: boolean): ShopItemMeta[] {
   if (godMode) return [...ALL_SHOP_ITEMS];
-  return ALL_SHOP_ITEMS.slice(0, Math.min(16, 4 + level));
+  return ALL_SHOP_ITEMS.slice(0, Math.min(ALL_SHOP_ITEMS.length, 4 + level));
 }
