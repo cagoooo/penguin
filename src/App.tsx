@@ -6,12 +6,14 @@ import { ALL_SHOP_ITEMS as SHOP_DATA, getShopItem, type ShopItemMeta } from './s
 import { initAudio, playTone, sounds, mutedRef, pausedRef } from './audio/sounds';
 import { startBGM, stopBGM, loadBgmTrack, type BgmTrackId } from './audio/bgm';
 import { useAchievements } from './achievements/useAchievements';
+import { useReducedMotion } from './hooks/useReducedMotion';
 // shareImage is ~250 lines of canvas drawing — only needed when the player
 // hits the 📷 share button. Dynamic import keeps it out of the main chunk.
 import { getSkin, loadSkin, saveSkin, type SkinId } from './skins/skins';
 import { comboMultiplier, getComboTier, justEnteredNewTier, type ComboTier } from './game/combo';
 import { getDailyChallenge, loadDailyRecord, recordDailyAttempt } from './game/dailyChallenge';
 import { saveGame, loadSavedGame, clearSavedGame, type SavedGame } from './store/savedGame';
+import { getSeasonalEvent, isEventActive } from './game/seasonalEvents';
 import { drawEnvironment } from './render/drawEnvironment';
 import { drawObstacles } from './render/drawObstacles';
 import { drawPenguin } from './render/drawPenguin';
@@ -194,6 +196,9 @@ export default function App() {
     }
   }, []);
 
+  // 5-3 Honour OS-level reduce-motion preference
+  const reducedMotion = useReducedMotion();
+
   // Phase 5+: combo system
   const [comboCount, setComboCount] = useState(0);
   const [comboFlash, setComboFlash] = useState<ComboTier | null>(null);
@@ -212,6 +217,9 @@ export default function App() {
   const timeAttackModeRef = useRef(false);
   useEffect(() => { timeAttackModeRef.current = timeAttackMode; }, [timeAttackMode]);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  // 6-6 Seasonal events — auto-detected based on date
+  const seasonalEvent = getSeasonalEvent();
 
   // 16-15 Quick continue: track if there's a saved session on mount
   const [resumableSave, setResumableSave] = useState<SavedGame | null>(() => loadSavedGame());
@@ -703,6 +711,12 @@ export default function App() {
       setTime(g.time);
     }
 
+    // 6-6 Seasonal time bonus (Christmas / Spring / Mid-Autumn) on fresh runs
+    if (!actualNextLevel && seasonalEvent.timeBonus > 0) {
+      g.time += seasonalEvent.timeBonus;
+      setTime(g.time);
+    }
+
     g.distance = g.levelDistance;
     g.speed = dailyModeRef.current && !actualNextLevel ? 20 * getDailyChallenge().speedMultiplier : 20;
     g.lastObstacleZ = 0;
@@ -919,6 +933,11 @@ export default function App() {
 
     gamepadRequest = requestAnimationFrame(pollGamepad);
     return () => cancelAnimationFrame(gamepadRequest);
+    // initGame is intentionally omitted from deps — it'd cause the gamepad
+    // poller to be torn down + recreated every state change, which would skip
+    // input frames. The captured identity is fine because all state
+    // mutations happen through the gameRef, not closures.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameState, selectedShopItem]);
 
   // --- Game Loop ---
@@ -1476,6 +1495,10 @@ export default function App() {
                       else points = 500;
                       if (g.hasTripleFish) points *= 3;
                       if (g.hasTwinPenguins) points *= 2;
+                      // 6-6 seasonal fish bonus (Christmas/LNY/Summer)
+                      if (isEventActive(seasonalEvent) && seasonalEvent.fishBonus !== 1) {
+                        points = Math.round(points * seasonalEvent.fishBonus);
+                      }
                       fishCollectedRef.current += 1;
                       isComboItem = true;
                       sounds.fish();
@@ -1719,7 +1742,7 @@ export default function App() {
 
     update();
     return () => cancelAnimationFrame(frameId.current);
-  }, [gameState, unlockAchievement]);
+  }, [gameState, unlockAchievement, seasonalEvent]);
 
   return (
     <div 
@@ -1771,7 +1794,7 @@ export default function App() {
               <Trophy className="text-yellow-400 w-4 h-4 sm:w-5 h-5 mb-0.5" />
               <div className="min-w-0">
                 <p className="text-[8px] sm:text-[10px] uppercase tracking-wider opacity-60">得分</p>
-                <p className="text-sm sm:text-xl font-mono font-bold text-white leading-tight">{Math.floor(score)}</p>
+                <p className="text-sm sm:text-xl font-pixel font-bold text-white leading-tight">{Math.floor(score)}</p>
               </div>
             </div>
             {/* Cell 2: Lives */}
@@ -1788,7 +1811,7 @@ export default function App() {
               <MapPin className="text-purple-400 w-4 h-4 sm:w-5 h-5 mb-0.5" />
               <div className="min-w-0">
                 <p className="text-[8px] sm:text-[10px] uppercase tracking-wider opacity-60">關卡</p>
-                <p className="text-sm sm:text-xl font-mono font-bold text-white leading-tight">{level}</p>
+                <p className="text-sm sm:text-xl font-pixel font-bold text-white leading-tight">{level}</p>
               </div>
             </div>
             {/* Cell 4: Time (countdown) or Elapsed (Time Attack) */}
@@ -1797,11 +1820,11 @@ export default function App() {
               <div className="min-w-0">
                 <p className="text-[8px] sm:text-[10px] uppercase tracking-wider opacity-60">{timeAttackMode ? '計時' : '時間'}</p>
                 {timeAttackMode ? (
-                  <p className="text-sm sm:text-xl font-mono font-bold text-pink-200 leading-tight tabular-nums">
+                  <p className="text-sm sm:text-xl font-pixel font-bold text-pink-200 leading-tight tabular-nums">
                     {elapsedSeconds.toFixed(1)}s
                   </p>
                 ) : (
-                  <p className={`text-sm sm:text-xl font-mono font-bold text-white leading-tight ${time < 20 ? 'text-red-400 animate-pulse' : ''}`}>
+                  <p className={`text-sm sm:text-xl font-pixel font-bold text-white leading-tight ${time < 20 ? 'text-red-400 animate-pulse' : ''}`}>
                     {Math.max(0, Math.floor(time))} 秒
                   </p>
                 )}
@@ -1812,7 +1835,7 @@ export default function App() {
               <MapPin className="text-green-400 w-4 h-4 sm:w-5 h-5 mb-0.5" />
               <div className="min-w-0">
                 <p className="text-[8px] sm:text-[10px] uppercase tracking-wider opacity-60">距離</p>
-                <p className="text-sm sm:text-xl font-mono font-bold text-white leading-tight">{Math.max(0, Math.floor(distance))} 公尺</p>
+                <p className="text-sm sm:text-xl font-pixel font-bold text-white leading-tight">{Math.max(0, Math.floor(distance))} 公尺</p>
               </div>
             </div>
             {/* Cell 6: Speed */}
@@ -1970,7 +1993,7 @@ export default function App() {
                 >
                   <div className={`flex items-baseline gap-2 px-4 py-2 bg-black/60 backdrop-blur-md border-2 rounded-full ${tier.color || 'text-white border-white/30'}`}>
                     <span className="text-xs uppercase tracking-widest opacity-70">Combo</span>
-                    <span className="text-2xl sm:text-3xl font-mono font-black tabular-nums">×{comboCount}</span>
+                    <span className="text-2xl sm:text-3xl font-pixel font-black tabular-nums">×{comboCount}</span>
                     {tier.multiplier > 1 && (
                       <span className="text-sm font-bold opacity-80">{tier.multiplier}x 分數</span>
                     )}
@@ -1984,10 +2007,10 @@ export default function App() {
               {comboFlash && (
                 <motion.div
                   key={comboFlash.label}
-                  initial={{ scale: 0.5, opacity: 0, y: 0 }}
-                  animate={{ scale: [1.4, 1, 1], opacity: [0, 1, 1], y: [0, 0, -40] }}
+                  initial={reducedMotion ? { opacity: 0 } : { scale: 0.5, opacity: 0, y: 0 }}
+                  animate={reducedMotion ? { opacity: 1 } : { scale: [1.4, 1, 1], opacity: [0, 1, 1], y: [0, 0, -40] }}
                   exit={{ opacity: 0 }}
-                  transition={{ duration: 1.2 }}
+                  transition={{ duration: reducedMotion ? 0.2 : 1.2 }}
                   className={`absolute top-32 left-1/2 -translate-x-1/2 z-30 pointer-events-none select-none font-black text-4xl sm:text-6xl tracking-tighter italic ${comboFlash.color}`}
                   style={{ textShadow: '0 4px 20px rgba(0,0,0,0.8)' }}
                 >
@@ -2244,7 +2267,7 @@ export default function App() {
                   <p className="mb-4 sm:mb-6 text-yellow-300/80 text-xs sm:text-sm flex items-center justify-center gap-2">
                     <Trophy size={14} className="text-yellow-400" />
                     <span className="opacity-70">歷史最高分</span>
-                    <span className="font-mono font-bold tracking-wider">{bestScore.toLocaleString()}</span>
+                    <span className="font-pixel font-bold tracking-wider">{bestScore.toLocaleString()}</span>
                   </p>
                 )}
                 
@@ -2327,7 +2350,7 @@ export default function App() {
                           of blank screen at the start of every cycle.)
                         */}
                         <motion.div
-                          animate={{ y: ['0%', '-50%'] }}
+                          animate={reducedMotion ? undefined : { y: ['0%', '-50%'] }}
                           transition={{ duration: 50, ease: 'linear', repeat: Infinity }}
                           className="space-y-12 py-2"
                         >
@@ -2386,6 +2409,20 @@ export default function App() {
                     </button>
                   </div>
                 </div>
+
+                {/* 6-6 Seasonal banner — auto-shown when an event is active */}
+                {isEventActive(seasonalEvent) && (
+                  <div className={`mb-3 mx-auto max-w-md px-4 py-2 rounded-2xl border-2 bg-gradient-to-r ${seasonalEvent.bannerColor}`}>
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">{seasonalEvent.emoji}</span>
+                      <div className="text-left flex-1">
+                        <p className="font-bold text-sm">{seasonalEvent.name}</p>
+                        <p className="text-[10px] opacity-70 leading-tight">{seasonalEvent.description}</p>
+                      </div>
+                      <span className="text-[10px] opacity-50 px-2 py-1 bg-black/30 rounded">活動中</span>
+                    </div>
+                  </div>
+                )}
 
                 {/* Time Attack toggle */}
                 <div className={`mb-3 mx-auto max-w-md px-4 py-2 rounded-2xl border-2 transition-all ${
@@ -2516,13 +2553,13 @@ export default function App() {
               <div className="flex gap-3 sm:gap-4 mb-8">
                 <div className="bg-black/30 px-5 sm:px-6 py-4 rounded-2xl">
                   <p className="text-[10px] sm:text-sm uppercase opacity-60 mb-1">最終得分</p>
-                  <p className="text-3xl sm:text-5xl font-mono font-bold">{score}</p>
+                  <p className="text-3xl sm:text-5xl font-pixel font-bold">{score}</p>
                 </div>
                 <div className="bg-black/30 px-5 sm:px-6 py-4 rounded-2xl border border-yellow-400/30">
                   <p className="text-[10px] sm:text-sm uppercase opacity-60 mb-1 flex items-center gap-1 justify-center">
                     <Trophy size={12} className="text-yellow-400" /> 最高分
                   </p>
-                  <p className="text-3xl sm:text-5xl font-mono font-bold text-yellow-300">{bestScore}</p>
+                  <p className="text-3xl sm:text-5xl font-pixel font-bold text-yellow-300">{bestScore}</p>
                 </div>
               </div>
               {/* Submit to leaderboard (lazy-loaded — Firebase chunk loads here) */}
@@ -2601,17 +2638,17 @@ export default function App() {
               <div className="flex gap-4 mb-12">
                 <div className="bg-black/20 p-6 rounded-2xl">
                   <p className="text-sm uppercase opacity-60 mb-1">得分</p>
-                  <p className="text-4xl font-mono font-bold">{score}</p>
+                  <p className="text-4xl font-pixel font-bold">{score}</p>
                 </div>
                 {timeAttackMode ? (
                   <div className="bg-pink-500/20 border-2 border-pink-400/40 p-6 rounded-2xl">
                     <p className="text-sm uppercase opacity-70 mb-1 text-pink-200">⚡ 完成時間</p>
-                    <p className="text-4xl font-mono font-bold text-pink-100">{elapsedSeconds.toFixed(2)}s</p>
+                    <p className="text-4xl font-pixel font-bold text-pink-100">{elapsedSeconds.toFixed(2)}s</p>
                   </div>
                 ) : (
                   <div className="bg-black/20 p-6 rounded-2xl">
                     <p className="text-sm uppercase opacity-60 mb-1">時間獎勵</p>
-                    <p className="text-4xl font-mono font-bold">+{Math.floor(time * 10)}</p>
+                    <p className="text-4xl font-pixel font-bold">+{Math.floor(time * 10)}</p>
                   </div>
                 )}
               </div>

@@ -1,0 +1,26 @@
+[
+  {
+    "name": "🐧 First load (HTML + main JS + CSS, gzip)",
+    "path": ["dist/index.html", "dist/assets/index-*.js", "dist/assets/index-*.css"],
+    "limit": "180 KB",
+    "gzip": true
+  },
+  {
+    "name": "📦 Total initial parse (react + motion + index, gzip)",
+    "path": ["dist/assets/react-*.js", "dist/assets/motion-*.js", "dist/assets/index-*.js"],
+    "limit": "165 KB",
+    "gzip": true
+  },
+  {
+    "name": "🔥 Firebase chunk (lazy)",
+    "path": "dist/assets/firebase-*.js",
+    "limit": "120 KB",
+    "gzip": true
+  },
+  {
+    "name": "🎨 Lazy modal chunks total",
+    "path": ["dist/assets/AchievementsModal-*.js", "dist/assets/SkinPickerModal-*.js", "dist/assets/LeaderboardModal-*.js", "dist/assets/ScoreSubmitForm-*.js"],
+    "limit": "10 KB",
+    "gzip": true
+  }
+]

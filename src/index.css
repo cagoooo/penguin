@@ -1,1 +1,11 @@
 @import "tailwindcss";
+
+/* Press Start 2P retro 8-bit font.
+ * Used via class .font-pixel — only on numbers / hero titles. NEVER on body
+ * paragraphs (it's heroically unreadable beyond ~12 chars). */
+@theme {
+  --font-pixel: 'Press Start 2P', 'Microsoft JhengHei', system-ui, sans-serif;
+}
+
+.font-pixel { font-family: var(--font-pixel); }
+
