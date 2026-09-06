@@ -3,6 +3,8 @@
 > 致敬 Konami 1983 年經典遊戲《Antarctic Adventure》的 React 重製版。
 > 由 **阿凱老師** 為石門國小學生製作。
 
+> 📌 **目前版本：v1.0.0**（版本管理自 2026-09-06 起，依據 `package.json`）
+
 🎮 **線上玩**：https://cagoooo.github.io/penguin/
 
 📖 **詳細玩法說明**：[USAGE.md](USAGE.md)
