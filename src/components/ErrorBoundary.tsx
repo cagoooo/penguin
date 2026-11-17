@@ -34,10 +34,15 @@ export class ErrorBoundary extends Component<Props, State> {
 
   private handleReload = () => {
     // Try unregistering the SW first so a stale precache can't keep returning
-    // broken HTML — this matters specifically for lazy-import 404s after deploy
+    // broken HTML — this matters specifically for lazy-import 404s after deploy.
+    // Only OUR registration: every cagoooo.github.io tool shares this origin, so
+    // getRegistrations() also returns other tools' service workers.
     if ('serviceWorker' in navigator) {
+      const ownScope = new URL(import.meta.env.BASE_URL, window.location.href).href;
       navigator.serviceWorker.getRegistrations()
-        .then(regs => Promise.all(regs.map(r => r.unregister())))
+        .then(regs => Promise.all(
+          regs.filter(r => r.scope.startsWith(ownScope)).map(r => r.unregister()),
+        ))
         .catch(() => {})
         .finally(() => window.location.reload());
     } else {
