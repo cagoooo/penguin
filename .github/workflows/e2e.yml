@@ -18,18 +18,32 @@ permissions:
   contents: read
 
 jobs:
+  pw-version:
+    # 讀出專案鎖定的 Playwright 版本，測試用同版本的官方環境（瀏覽器已內建，不必下載）
+    runs-on: ubuntu-24.04
+    outputs:
+      v: ${{ steps.v.outputs.v }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: echo "v=$(node -p "require('./package-lock.json').packages['node_modules/playwright-core'].version")" >> "$GITHUB_OUTPUT"
+
   local:
     # Skip the local job when this run was triggered by the deploy workflow —
     # the post-deploy job below handles that scenario instead.
     if: github.event_name != 'workflow_run'
-    runs-on: ubuntu-latest
+    needs: pw-version
+    runs-on: ubuntu-24.04
+    # 在 Playwright 官方環境裡跑：瀏覽器已內建，不受測試機作業系統更新（ubuntu-latest 換 26.04）或下載站卡住影響
+    container:
+      image: mcr.microsoft.com/playwright:v${{ needs.pw-version.outputs.v }}-noble
+      options: --user 1001
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
       - run: npm run build
       - run: npm run e2e -- --project=chromium
       - if: failure()
@@ -41,14 +55,18 @@ jobs:
 
   post-deploy:
     if: github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'
-    runs-on: ubuntu-latest
+    needs: pw-version
+    runs-on: ubuntu-24.04
+    # 在 Playwright 官方環境裡跑：瀏覽器已內建，不受測試機作業系統更新（ubuntu-latest 換 26.04）或下載站卡住影響
+    container:
+      image: mcr.microsoft.com/playwright:v${{ needs.pw-version.outputs.v }}-noble
+      options: --user 1001
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
       - name: Wait for GitHub Pages CDN to settle
         run: sleep 30
       - run: npm run e2e -- --project=chromium
