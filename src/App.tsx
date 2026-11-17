@@ -2803,7 +2803,7 @@ export default function App() {
         <span className="text-pink-400/70" aria-label="love">♥</span>
         {' '}by{' '}
         <a
-          href="https://www.smes.tyc.edu.tw/"
+          href="https://cagoooo.github.io/Akai/"
           target="_blank"
           rel="noopener noreferrer"
           className="underline decoration-dotted underline-offset-2 hover:text-white transition-colors"
