@@ -347,6 +347,16 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [gameState]);
 
+  // 切換分頁／切到其他 App 時自動暫停（回來後由玩家自行按繼續，不會自動恢復）
+  useEffect(() => {
+    if (gameState !== 'PLAYING') return;
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') setPaused(true);
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [gameState]);
+
   // Warn before accidental F5 / close while a game is in progress.
   // beforeunload only fires the native confirm if returnValue is set; the
   // string itself is ignored by modern browsers (they show a generic message).
@@ -601,6 +611,7 @@ export default function App() {
   const obstaclesRef = useRef<Obstacle[]>([]);
   const frameId = useRef<number>(0);
   const keys = useRef<{ [key: string]: boolean }>({});
+  const touchPointerId = useRef<number | null>(null); // 負責目前手勢的指標，避免第二指覆蓋起點
 
   // --- Initialization ---
   const initGame = (isNextLevel: any = false, resumeFrom: SavedGame | null = null) => {
@@ -947,16 +958,13 @@ export default function App() {
     const ctx = canvasRef.current?.getContext('2d');
     if (!ctx) return;
 
+    // 固定 60Hz 步長：update 內所有「每幀」常數維持原樣，
+    // 由 frame() 以累加器決定每個 rAF 要執行幾次（120Hz 螢幕不會變兩倍速）。
+    let loopEnded = false; // 過關／遊戲結束時由 update 設定，停止迴圈
+
     const update = () => {
       const g = gameRef.current;
       const p = playerRef.current;
-
-      // Pause: skip simulation but keep redrawing the last frame
-      if (pausedRef.current) {
-        draw();
-        frameId.current = requestAnimationFrame(update);
-        return;
-      }
 
       // 1. Update Speed
       const baseMaxSpeed = g.hasSkateboard ? MAX_SPEED * 2 : MAX_SPEED;
@@ -973,7 +981,7 @@ export default function App() {
           g.speed = Math.max(20, g.speed - FRICTION);
         }
       }
-      setSpeed(g.speed);
+      setSpeed(Math.floor(g.speed)); // HUD 只在整數值改變時才觸發重繪
 
       // Apply touch lane if accelerating via touch
       if (g.isTouchAccelerating) {
@@ -987,9 +995,12 @@ export default function App() {
       const finalDistAdded = g.hasKingCrown ? distAdded * 3 : distAdded;
       g.distance -= finalDistAdded;
       g.bgOffset += currentSpeed * 0.05; // Base parallax movement
-      setDistance(Math.max(0, g.distance));
+      setDistance(Math.max(0, Math.floor(g.distance))); // HUD 顯示取整數，值不變時 React 不會重繪
 
       if (g.distance <= 0) {
+        // 過關結算會用到精確的剩餘時間與計時，先寫入精確值
+        setTime(Math.max(0, g.time));
+        setElapsedSeconds(g.elapsedSeconds);
         setGameState('LEVEL_CLEAR');
         sounds.clear();
         confetti({
@@ -997,6 +1008,7 @@ export default function App() {
           spread: 70,
           origin: { y: 0.6 }
         });
+        loopEnded = true;
         return;
       }
 
@@ -1015,10 +1027,10 @@ export default function App() {
       } else if (g.timeAttackMode) {
         // Time Attack: count UP, no countdown limit. Used as the speedrun clock.
         g.elapsedSeconds += 1/60;
-        setElapsedSeconds(g.elapsedSeconds);
+        setElapsedSeconds(Math.round(g.elapsedSeconds * 10) / 10); // HUD 顯示到小數 1 位
       } else {
         g.time -= 1/60;
-        setTime(Math.max(0, g.time));
+        setTime(Math.max(0, Math.floor(g.time * 10) / 10)); // HUD 只顯示整數秒，每 0.1 秒更新一次即可
       }
 
       // Warning sound for last 5 seconds
@@ -1039,6 +1051,7 @@ export default function App() {
         } else {
           setGameState('GAME_OVER');
           sounds.gameOver();
+          loopEnded = true;
           return;
         }
       }
@@ -1704,8 +1717,6 @@ export default function App() {
         }
       });
 
-      draw();
-      frameId.current = requestAnimationFrame(update);
     };
 
     const draw = () => {
@@ -1740,7 +1751,41 @@ export default function App() {
       drawWeather(ctx, g);
     };
 
-    update();
+    const STEP_MS = 1000 / 60;
+    const MAX_FRAME_MS = 100; // 切回分頁後單次最多補 100ms，避免暴衝
+    const MAX_STEPS = 5;
+    let lastTime = performance.now();
+    let acc = 0;
+
+    const frame = (now: number) => {
+      const dt = Math.min(Math.max(now - lastTime, 0), MAX_FRAME_MS);
+      lastTime = now;
+
+      // Pause: skip simulation but keep redrawing the last frame
+      if (pausedRef.current) {
+        acc = 0;
+        draw();
+        frameId.current = requestAnimationFrame(frame);
+        return;
+      }
+
+      acc += dt;
+      let steps = 0;
+      // 容許 1ms 誤差，避免 60Hz 螢幕因計時抖動偶爾空一步又補兩步
+      while (acc >= STEP_MS - 1 && steps < MAX_STEPS) {
+        update();
+        acc -= STEP_MS;
+        steps++;
+        if (loopEnded) return;
+      }
+      if (acc > STEP_MS) acc = 0; // 補步已達上限，捨棄剩餘落後量
+      if (acc < 0) acc = 0;
+
+      draw();
+      frameId.current = requestAnimationFrame(frame);
+    };
+
+    frameId.current = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(frameId.current);
   }, [gameState, unlockAchievement, seasonalEvent]);
 
@@ -1900,6 +1945,9 @@ export default function App() {
               onPointerDown={(e) => {
                 if (gameState !== 'PLAYING') return;
                 const g = gameRef.current;
+                // 已有手指在操作時，忽略其他手指
+                if (g.isTouchAccelerating && touchPointerId.current !== null && touchPointerId.current !== e.pointerId) return;
+                touchPointerId.current = e.pointerId;
                 g.isTouchAccelerating = true;
                 g.touchDownTime = Date.now();
                 g.touchStartX = e.clientX;
@@ -1910,6 +1958,7 @@ export default function App() {
               }}
               onPointerMove={(e) => {
                 if (gameState !== 'PLAYING') return;
+                if (touchPointerId.current !== null && e.pointerId !== touchPointerId.current) return;
                 const g = gameRef.current;
                 if (!g.isTouchAccelerating) return;
                 if (g.touchSwiped) return; // One swipe per gesture
@@ -1939,8 +1988,10 @@ export default function App() {
                   g.touchSwiped = true;
                 }
               }}
-              onPointerUp={() => {
+              onPointerUp={(e) => {
                 if (gameState !== 'PLAYING') return;
+                if (touchPointerId.current !== null && e.pointerId !== touchPointerId.current) return;
+                touchPointerId.current = null;
                 const g = gameRef.current;
                 g.isTouchAccelerating = false;
                 const duration = Date.now() - g.touchDownTime;
@@ -1964,13 +2015,17 @@ export default function App() {
                   }
                 }
               }}
-              onPointerLeave={() => {
+              onPointerLeave={(e) => {
+                if (touchPointerId.current !== null && e.pointerId !== touchPointerId.current) return;
+                touchPointerId.current = null;
                 if (gameRef.current) {
                   gameRef.current.isTouchAccelerating = false;
                   gameRef.current.touchSwiped = false;
                 }
               }}
-              onPointerCancel={() => {
+              onPointerCancel={(e) => {
+                if (touchPointerId.current !== null && e.pointerId !== touchPointerId.current) return;
+                touchPointerId.current = null;
                 if (gameRef.current) {
                   gameRef.current.isTouchAccelerating = false;
                   gameRef.current.touchSwiped = false;

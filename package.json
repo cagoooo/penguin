@@ -1,7 +1,7 @@
 {
   "name": "penguin",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "南極大冒險：企鵝跑酷 - Konami 經典重製版",
   "type": "module",
   "scripts": {
